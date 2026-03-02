@@ -44,6 +44,12 @@
 #ifdef HAVE_V4L2
 # include "v4l2_sink.h"
 #endif
+#ifdef HAVE_AI_PANEL
+# include "ai/ai_agent.h"
+# include "ai/ai_frame_sink.h"
+# include "ai/web_server.h"
+# include "ai/web_video_sink.h"
+#endif
 
 struct scrcpy {
     struct sc_server server;
@@ -58,6 +64,12 @@ struct scrcpy {
 #ifdef HAVE_V4L2
     struct sc_v4l2_sink v4l2_sink;
     struct sc_delay_buffer v4l2_buffer;
+#endif
+#ifdef HAVE_AI_PANEL
+    struct sc_ai_frame_sink ai_frame_sink;
+    struct sc_ai_agent ai_agent;
+    struct sc_web_server web_server;
+    struct sc_web_video_sink web_video_sink;
 #endif
     struct sc_controller controller;
     struct sc_file_pusher file_pusher;
@@ -178,7 +190,10 @@ sdl_configure(bool video_playback, bool disable_screensaver) {
 static enum scrcpy_exit_code
 event_loop(struct scrcpy *s, bool has_screen) {
     SDL_Event event;
-    while (SDL_WaitEvent(&event)) {
+    for (;;) {
+        if (!SDL_WaitEvent(&event)) {
+            break;
+        }
         switch (event.type) {
             case SC_EVENT_DEVICE_DISCONNECTED:
                 LOGW("Device disconnected");
@@ -403,6 +418,14 @@ scrcpy(struct scrcpy_options *options) {
 #ifdef HAVE_V4L2
     bool v4l2_sink_initialized = false;
 #endif
+#ifdef HAVE_AI_PANEL
+    bool ai_frame_sink_initialized = false;
+    bool ai_agent_initialized = false;
+    bool ai_agent_started = false;
+    bool web_server_initialized = false;
+    bool web_server_started = false;
+    bool web_video_sink_initialized = false;
+#endif
     bool video_demuxer_started = false;
     bool audio_demuxer_started = false;
 #ifdef HAVE_USB
@@ -593,6 +616,9 @@ scrcpy(struct scrcpy_options *options) {
     bool needs_audio_decoder = options->audio_playback;
 #ifdef HAVE_V4L2
     needs_video_decoder |= !!options->v4l2_device;
+#endif
+#ifdef HAVE_AI_PANEL
+    needs_video_decoder |= options->ai_panel;
 #endif
     if (needs_video_decoder) {
         sc_decoder_init(&s->video_decoder, "video");
@@ -870,6 +896,70 @@ aoa_complete:
     }
 #endif
 
+#ifdef HAVE_AI_PANEL
+    if (options->ai_panel && options->video && options->control) {
+        if (!sc_ai_frame_sink_init(&s->ai_frame_sink)) {
+            LOGE("Could not initialize AI frame sink");
+            goto end;
+        }
+        ai_frame_sink_initialized = true;
+
+        sc_frame_source_add_sink(&s->video_decoder.frame_source,
+                                  &s->ai_frame_sink.frame_sink);
+
+        struct sc_ai_agent_params ai_params = {
+            .frame_sink = &s->ai_frame_sink,
+            .controller = controller,
+            .api_key = options->ai_api_key,
+            .model = options->ai_model,
+            .base_url = options->ai_base_url,
+        };
+
+        if (!sc_ai_agent_init(&s->ai_agent, &ai_params)) {
+            LOGE("Could not initialize AI agent");
+            goto end;
+        }
+        ai_agent_initialized = true;
+
+        if (!sc_ai_agent_start(&s->ai_agent)) {
+            LOGE("Could not start AI agent");
+            goto end;
+        }
+        ai_agent_started = true;
+
+        LOGI("AI agent enabled");
+
+        if (options->ai_web_port) {
+            // Initialize web video sink for streaming H.264 to browser
+            if (options->video) {
+                if (sc_web_video_sink_init(&s->web_video_sink)) {
+                    web_video_sink_initialized = true;
+                    sc_packet_source_add_sink(
+                        &s->video_demuxer.packet_source,
+                        &s->web_video_sink.packet_sink);
+                } else {
+                    LOGW("Could not initialize web video sink");
+                }
+            }
+
+            struct sc_web_video_sink *vs =
+                web_video_sink_initialized ? &s->web_video_sink : NULL;
+            if (!sc_web_server_init(&s->web_server, &s->ai_agent,
+                                    vs, controller,
+                                    options->ai_web_port)) {
+                LOGW("Could not initialize web server");
+            } else {
+                web_server_initialized = true;
+                if (!sc_web_server_start(&s->web_server)) {
+                    LOGW("Could not start web server");
+                } else {
+                    web_server_started = true;
+                }
+            }
+        }
+    }
+#endif
+
     // Now that the header values have been consumed, the socket(s) will
     // receive the stream(s). Start the demuxer(s).
 
@@ -956,6 +1046,18 @@ aoa_complete:
     }
 
 end:
+#ifdef HAVE_AI_PANEL
+    if (web_server_started) {
+        sc_web_server_stop(&s->web_server);
+    }
+    if (web_video_sink_initialized) {
+        sc_web_video_sink_stop(&s->web_video_sink);
+    }
+    if (ai_agent_started) {
+        sc_ai_agent_stop(&s->ai_agent);
+    }
+#endif
+
     if (timeout_started) {
         sc_timeout_stop(&s->timeout);
     }
@@ -1057,6 +1159,27 @@ end:
         sc_file_pusher_join(&s->file_pusher);
         sc_file_pusher_destroy(&s->file_pusher);
     }
+
+#ifdef HAVE_AI_PANEL
+    if (web_server_started) {
+        sc_web_server_join(&s->web_server);
+    }
+    if (web_server_initialized) {
+        sc_web_server_destroy(&s->web_server);
+    }
+    if (web_video_sink_initialized) {
+        sc_web_video_sink_destroy(&s->web_video_sink);
+    }
+    if (ai_agent_started) {
+        sc_ai_agent_join(&s->ai_agent);
+    }
+    if (ai_agent_initialized) {
+        sc_ai_agent_destroy(&s->ai_agent);
+    }
+    if (ai_frame_sink_initialized) {
+        sc_ai_frame_sink_destroy(&s->ai_frame_sink);
+    }
+#endif
 
     if (server_started) {
         sc_server_join(&s->server);

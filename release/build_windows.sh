@@ -25,6 +25,7 @@ app/deps/sdl.sh $WINXX cross shared
 app/deps/dav1d.sh $WINXX cross shared
 app/deps/ffmpeg.sh $WINXX cross shared
 app/deps/libusb.sh $WINXX cross shared
+app/deps/libcurl.sh $WINXX cross shared
 
 DEPS_INSTALL_DIR="$PWD/app/deps/work/install/$WINXX-cross-shared"
 ADB_INSTALL_DIR="$PWD/app/deps/work/install/adb-windows"
@@ -33,13 +34,16 @@ rm -rf "$WINXX_BUILD_DIR"
 meson setup "$WINXX_BUILD_DIR" \
     --pkg-config-path="$DEPS_INSTALL_DIR/lib/pkgconfig" \
     -Dc_args="-I$DEPS_INSTALL_DIR/include" \
-    -Dc_link_args="-L$DEPS_INSTALL_DIR/lib" \
+    -Dc_link_args="-L$DEPS_INSTALL_DIR/lib -static-libgcc" \
+    -Dcpp_args="-I$DEPS_INSTALL_DIR/include" \
+    -Dcpp_link_args="-L$DEPS_INSTALL_DIR/lib -static-libgcc -static-libstdc++" \
     --cross-file=cross_$WINXX.txt \
     --buildtype=release \
     --strip \
     -Db_lto=true \
     -Dcompile_server=false \
-    -Dportable=true
+    -Dportable=true \
+    -Dai_panel=true
 ninja -C "$WINXX_BUILD_DIR"
 
 # Group intermediate outputs into a 'dist' directory

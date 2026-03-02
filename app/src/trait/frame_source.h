@@ -7,7 +7,7 @@
 
 #include "trait/frame_sink.h"
 
-#define SC_FRAME_SOURCE_MAX_SINKS 2
+#define SC_FRAME_SOURCE_MAX_SINKS 3
 
 /**
  * Frame source trait

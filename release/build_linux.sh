@@ -18,6 +18,7 @@ app/deps/sdl.sh linux native static
 app/deps/dav1d.sh linux native static
 app/deps/ffmpeg.sh linux native static
 app/deps/libusb.sh linux native static
+app/deps/libcurl.sh linux native static
 
 DEPS_INSTALL_DIR="$PWD/app/deps/work/install/linux-native-static"
 ADB_INSTALL_DIR="$PWD/app/deps/work/install/adb-linux"
@@ -27,12 +28,15 @@ meson setup "$LINUX_BUILD_DIR" \
     --pkg-config-path="$DEPS_INSTALL_DIR/lib/pkgconfig" \
     -Dc_args="-I$DEPS_INSTALL_DIR/include" \
     -Dc_link_args="-L$DEPS_INSTALL_DIR/lib" \
+    -Dcpp_args="-I$DEPS_INSTALL_DIR/include" \
+    -Dcpp_link_args="-L$DEPS_INSTALL_DIR/lib" \
     --buildtype=release \
     --strip \
     -Db_lto=true \
     -Dcompile_server=false \
     -Dportable=true \
-    -Dstatic=true
+    -Dstatic=true \
+    -Dai_panel=true
 ninja -C "$LINUX_BUILD_DIR"
 
 # Group intermediate outputs into a 'dist' directory

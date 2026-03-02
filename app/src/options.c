@@ -113,6 +113,13 @@ const struct scrcpy_options scrcpy_options_default = {
     .angle = NULL,
     .vd_destroy_content = true,
     .vd_system_decorations = true,
+#ifdef HAVE_AI_PANEL
+    .ai_panel = false,
+    .ai_api_key = NULL,
+    .ai_model = NULL,
+    .ai_base_url = NULL,
+    .ai_web_port = 8080,
+#endif
 };
 
 enum sc_orientation

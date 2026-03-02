@@ -25,6 +25,9 @@
 static int
 main_scrcpy(int argc, char *argv[]) {
 #ifdef _WIN32
+    // Enable UTF-8 output on Windows console (e.g. for Korean text)
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
     // disable buffering, we want logs immediately
     // even line buffering (setvbuf() with mode _IOLBF) is not sufficient
     setbuf(stdout, NULL);

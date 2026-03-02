@@ -51,7 +51,6 @@ else
         --extra-cflags="-O2 -fPIC"
         --disable-programs
         --disable-doc
-        --disable-swscale
         --disable-postproc
         --disable-avfilter
         --disable-network
@@ -70,6 +69,7 @@ else
         --enable-decoder=aac
         --enable-decoder=flac
         --enable-decoder=png
+        --enable-encoder=png
         --enable-protocol=file
         --enable-demuxer=image2
         --enable-parser=png
