@@ -187,7 +187,8 @@ sc_ai_ocr_start(struct sc_ai_ocr *ocr) {
 
     sc_pipe pin, pout;
     enum sc_process_result r =
-        sc_process_execute_p(argv, &ocr->pid, 0, &pin, &pout, NULL);
+        sc_process_execute_p(argv, &ocr->pid, SC_PROCESS_NO_STDERR,
+                             &pin, &pout, NULL);
     free(script);
     free(python);
 

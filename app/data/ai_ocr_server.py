@@ -16,9 +16,16 @@ Startup sequence:
 """
 
 import json
+import os
 import struct
 import sys
 import io
+
+# Suppress PaddleOCR/PaddlePaddle verbose stderr output
+# This prevents the child process from blocking on a full stderr pipe
+sys.stderr = open(os.devnull, 'w')
+os.environ['GLOG_minloglevel'] = '3'
+os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = 'True'
 
 
 def send_msg(data: bytes):
@@ -76,26 +83,49 @@ def main():
             break
 
         try:
-            img = Image.open(io.BytesIO(jpeg_data))
+            img = Image.open(io.BytesIO(jpeg_data)).convert('RGB')
             import numpy as np
+            import cv2
+
             img_array = np.array(img)
 
-            result = ocr.ocr(img_array, cls=True)
+            # Preprocess: grayscale → contrast enhance → adaptive binarize
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            # CLAHE for local contrast enhancement
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            enhanced = clahe.apply(gray)
+            # Adaptive threshold for clean text edges
+            binary = cv2.adaptiveThreshold(
+                enhanced, 255,
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY,
+                blockSize=31, C=10,
+            )
+            # Convert back to 3-channel for PaddleOCR
+            preprocessed = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
 
-            texts = []
-            if result and result[0]:
-                for line in result[0]:
-                    bbox, (text, conf) = line
-                    # bbox is [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
-                    xs = [p[0] for p in bbox]
-                    ys = [p[1] for p in bbox]
-                    cx = int((min(xs) + max(xs)) / 2)
-                    cy = int((min(ys) + max(ys)) / 2)
-                    texts.append({
-                        "text": text,
-                        "center": [cx, cy],
-                        "conf": round(float(conf), 3),
-                    })
+            # Run OCR on both original and preprocessed, merge results
+            all_texts = {}  # key: (cx, cy) rounded to 20px grid
+
+            for src in [img_array, preprocessed]:
+                result = ocr.ocr(src, cls=True)
+                if result and result[0]:
+                    for line in result[0]:
+                        bbox, (text, conf) = line
+                        xs = [p[0] for p in bbox]
+                        ys = [p[1] for p in bbox]
+                        cx = int((min(xs) + max(xs)) / 2)
+                        cy = int((min(ys) + max(ys)) / 2)
+                        # Grid key to deduplicate nearby detections
+                        key = (cx // 20, cy // 20)
+                        if key not in all_texts or conf > all_texts[key]["conf"]:
+                            all_texts[key] = {
+                                "text": text,
+                                "center": [cx, cy],
+                                "conf": round(float(conf), 3),
+                            }
+
+            texts = list(all_texts.values())
 
             response = json.dumps({"texts": texts}, ensure_ascii=False)
             send_msg(response.encode('utf-8'))
