@@ -492,6 +492,55 @@ sc_ai_message_list_push_image(struct sc_ai_message_list *list,
 }
 
 void
+sc_ai_message_list_trim(struct sc_ai_message_list *list, size_t max_count) {
+    if (max_count < 2) {
+        max_count = 2; // at least system prompt + 1 message
+    }
+    if (list->count <= max_count) {
+        return;
+    }
+
+    // How many to remove (always keep messages[0] = system prompt)
+    size_t to_remove = list->count - max_count;
+    size_t trim_end = 1 + to_remove; // first index to KEEP (after system prompt)
+
+    // Advance past any orphaned "tool" messages so we don't break
+    // an assistant(tool_calls) -> tool(result) sequence
+    while (trim_end < list->count) {
+        const char *role = list->messages[trim_end].role;
+        if (role && strcmp(role, "tool") == 0) {
+            trim_end++;
+        } else {
+            break;
+        }
+    }
+
+    // If we'd trim everything, just keep system prompt + last message
+    if (trim_end >= list->count) {
+        trim_end = list->count - 1;
+    }
+
+    // Free the messages being removed (indices 1..trim_end-1)
+    for (size_t i = 1; i < trim_end; i++) {
+        struct sc_ai_message *msg = &list->messages[i];
+        free(msg->role);
+        free(msg->content);
+        free(msg->tool_call_id);
+        free(msg->name);
+        free(msg->tool_calls_json);
+    }
+
+    // Shift remaining messages right after system prompt
+    size_t remaining = list->count - trim_end;
+    memmove(&list->messages[1], &list->messages[trim_end],
+            remaining * sizeof(struct sc_ai_message));
+    list->count = 1 + remaining;
+
+    LOGD("AI message list trimmed: removed %zu messages, %zu remaining",
+         trim_end - 1, list->count);
+}
+
+void
 sc_ai_message_list_destroy(struct sc_ai_message_list *list) {
     for (size_t i = 0; i < list->count; i++) {
         struct sc_ai_message *msg = &list->messages[i];

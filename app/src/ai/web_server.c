@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include <libavcodec/avcodec.h>
+
 #include "ai_agent.h"
 #include "web_ui.h"
 #include "web_video_sink.h"
@@ -113,7 +115,6 @@ build_state_json(struct sc_ai_agent *agent) {
 
     // Auto-play state
     cJSON_AddBoolToObject(root, "auto_running", agent->auto_running);
-    cJSON_AddNumberToObject(root, "auto_interval_ms", agent->auto_interval_ms);
     cJSON_AddStringToObject(root, "game_rules",
         agent->game_rules ? agent->game_rules : "");
 
@@ -127,6 +128,8 @@ build_state_json(struct sc_ai_agent *agent) {
     }
     cJSON_AddStringToObject(root, "config_model",
         agent->config.model ? agent->config.model : "");
+    cJSON_AddStringToObject(root, "config_vision_model",
+        agent->vision_model ? agent->vision_model : "");
     cJSON_AddStringToObject(root, "config_base_url",
         agent->config.base_url ? agent->config.base_url : "");
 
@@ -427,14 +430,6 @@ handle_event(struct mg_connection *c, int ev, void *ev_data) {
         // POST /api/auto/start
         if (mg_match(hm->method, mg_str("POST"), NULL)
                 && mg_match(hm->uri, mg_str("/api/auto/start"), NULL)) {
-            cJSON *body = parse_body(hm);
-            if (body) {
-                cJSON *ms = cJSON_GetObjectItem(body, "interval_ms");
-                if (cJSON_IsNumber(ms)) {
-                    sc_ai_agent_set_auto_interval(agent, (int)ms->valuedouble);
-                }
-                cJSON_Delete(body);
-            }
             sc_ai_agent_set_auto_running(agent, true);
             send_ok(c);
             return;
@@ -459,13 +454,17 @@ handle_event(struct mg_connection *c, int ev, void *ev_data) {
             cJSON *ak = cJSON_GetObjectItem(body, "api_key");
             cJSON *md = cJSON_GetObjectItem(body, "model");
             cJSON *bu = cJSON_GetObjectItem(body, "base_url");
+            cJSON *vm = cJSON_GetObjectItem(body, "vision_model");
             const char *api_key_val = (cJSON_IsString(ak) && ak->valuestring[0])
                                   ? ak->valuestring : NULL;
             const char *model = (cJSON_IsString(md) && md->valuestring[0])
                                 ? md->valuestring : NULL;
             const char *base_url = (cJSON_IsString(bu) && bu->valuestring[0])
                                    ? bu->valuestring : NULL;
-            sc_ai_agent_set_config(agent, api_key_val, model, base_url);
+            const char *vision_model = (cJSON_IsString(vm) && vm->valuestring[0])
+                                       ? vm->valuestring : NULL;
+            sc_ai_agent_set_config(agent, api_key_val, model, base_url,
+                                   vision_model);
             cJSON_Delete(body);
             send_ok(c);
             return;
@@ -485,13 +484,18 @@ handle_event(struct mg_connection *c, int ev, void *ev_data) {
     } else if (ev == MG_EV_WS_OPEN) {
         // New WebSocket connection opened
         if (c->data[0] == 'V' && server->video_sink) {
-            // Send video dimensions as text frame
+            // Send video dimensions and codec as text frame
             uint16_t w, h;
             sc_web_video_sink_get_size(server->video_sink, &w, &h);
+            uint32_t codec_id =
+                sc_web_video_sink_get_codec_id(server->video_sink);
+            const char *codec_name =
+                (codec_id == AV_CODEC_ID_HEVC) ? "h265" : "h264";
 
-            char dim_json[64];
+            char dim_json[96];
             snprintf(dim_json, sizeof(dim_json),
-                     "{\"width\":%u,\"height\":%u}", (unsigned)w, (unsigned)h);
+                     "{\"width\":%u,\"height\":%u,\"codec\":\"%s\"}",
+                     (unsigned)w, (unsigned)h, codec_name);
             mg_ws_send(c, dim_json, strlen(dim_json), WEBSOCKET_OP_TEXT);
 
             // Send cached SPS/PPS config as binary
@@ -550,10 +554,14 @@ web_thread_fn(void *data) {
                      || cur_h != server->last_video_height)) {
                 server->last_video_width = cur_w;
                 server->last_video_height = cur_h;
-                char dim_json[64];
+                uint32_t codec_id =
+                    sc_web_video_sink_get_codec_id(server->video_sink);
+                const char *codec_name =
+                    (codec_id == AV_CODEC_ID_HEVC) ? "h265" : "h264";
+                char dim_json[96];
                 snprintf(dim_json, sizeof(dim_json),
-                         "{\"width\":%u,\"height\":%u}",
-                         (unsigned)cur_w, (unsigned)cur_h);
+                         "{\"width\":%u,\"height\":%u,\"codec\":\"%s\"}",
+                         (unsigned)cur_w, (unsigned)cur_h, codec_name);
                 for (struct mg_connection *c = server->mgr.conns;
                         c != NULL; c = c->next) {
                     if (c->data[0] == 'V' && c->is_websocket) {

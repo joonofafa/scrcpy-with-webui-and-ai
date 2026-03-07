@@ -239,6 +239,7 @@ install_data('data/zsh-completion/_scrcpy',
 install_data('data/bash-completion/scrcpy',
              install_dir: datadir / 'bash-completion/completions')
 
+
 # Desktop entry file for application launchers
 if host_machine.system() == 'linux'
     # Install a launcher (ex: /usr/local/share/applications/scrcpy.desktop)

@@ -16,10 +16,12 @@ sc_web_video_sink_open(struct sc_packet_sink *ps, AVCodecContext *ctx) {
     sc_mutex_lock(&sink->mutex);
     sink->video_width = ctx->width;
     sink->video_height = ctx->height;
+    sink->codec_id = ctx->codec_id;
     sink->opened = true;
     sc_mutex_unlock(&sink->mutex);
 
-    LOGI("Web video sink opened: %dx%d", ctx->width, ctx->height);
+    LOGI("Web video sink opened: %dx%d codec=%u",
+         ctx->width, ctx->height, (unsigned)ctx->codec_id);
     return true;
 }
 
@@ -179,6 +181,7 @@ sc_web_video_sink_init(struct sc_web_video_sink *sink) {
     sink->queue_count = 0;
     sink->video_width = 0;
     sink->video_height = 0;
+    sink->codec_id = 0;
     sink->opened = false;
     sink->stopped = false;
 
@@ -246,6 +249,14 @@ sc_web_video_sink_get_size(struct sc_web_video_sink *sink,
     *width = sink->video_width;
     *height = sink->video_height;
     sc_mutex_unlock(&sink->mutex);
+}
+
+uint32_t
+sc_web_video_sink_get_codec_id(struct sc_web_video_sink *sink) {
+    sc_mutex_lock(&sink->mutex);
+    uint32_t id = sink->codec_id;
+    sc_mutex_unlock(&sink->mutex);
+    return id;
 }
 
 void

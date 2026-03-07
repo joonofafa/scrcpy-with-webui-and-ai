@@ -36,6 +36,7 @@ struct sc_web_video_sink {
 
     uint16_t video_width;
     uint16_t video_height;
+    uint32_t codec_id;
     bool opened;
     bool stopped;
 };
@@ -59,6 +60,10 @@ sc_web_video_sink_get_config(struct sc_web_video_sink *sink,
 void
 sc_web_video_sink_get_size(struct sc_web_video_sink *sink,
                            uint16_t *width, uint16_t *height);
+
+// Get codec ID (AV_CODEC_ID_H264 or AV_CODEC_ID_HEVC)
+uint32_t
+sc_web_video_sink_get_codec_id(struct sc_web_video_sink *sink);
 
 void
 sc_web_video_sink_stop(struct sc_web_video_sink *sink);

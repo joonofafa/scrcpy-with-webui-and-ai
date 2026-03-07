@@ -110,6 +110,12 @@ sc_ai_message_list_push_image(struct sc_ai_message_list *list,
                               const char *text,
                               const char *base64_png);
 
+// Trim message list to keep at most max_count messages.
+// Always preserves messages[0] (system prompt).
+// Trims from the oldest (after system prompt), respecting tool_call boundaries.
+void
+sc_ai_message_list_trim(struct sc_ai_message_list *list, size_t max_count);
+
 void
 sc_ai_message_list_destroy(struct sc_ai_message_list *list);
 

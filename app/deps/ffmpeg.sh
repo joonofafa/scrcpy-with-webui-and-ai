@@ -70,6 +70,7 @@ else
         --enable-decoder=flac
         --enable-decoder=png
         --enable-encoder=png
+        --enable-encoder=mjpeg
         --enable-protocol=file
         --enable-demuxer=image2
         --enable-parser=png
