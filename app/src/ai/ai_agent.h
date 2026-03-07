@@ -8,7 +8,6 @@
 #include <stdint.h>
 
 #include "ai/ai_frame_sink.h"
-#include "ai/ai_ocr.h"
 #include "ai/ai_tools.h"
 #include "ai/openrouter.h"
 #include "util/thread.h"
@@ -17,6 +16,7 @@ struct sc_ai_agent {
     struct sc_ai_frame_sink *frame_sink;
     struct sc_ai_tools tools;
     struct sc_openrouter_config config;
+    char *vision_model; // VLM for screen analysis (NULL = use main model)
 
     // Worker thread
     sc_thread worker_thread;
@@ -55,10 +55,6 @@ struct sc_ai_agent {
     int32_t last_touch_y;
     int repeat_count;
 
-    // OCR
-    struct sc_ai_ocr ocr;
-    bool ocr_enabled;
-
     // Train log
     char *train_log_path;
 };
@@ -96,7 +92,8 @@ void
 sc_ai_agent_set_config(struct sc_ai_agent *agent,
                        const char *api_key,
                        const char *model,
-                       const char *base_url);
+                       const char *base_url,
+                       const char *vision_model);
 
 // Auto-play control
 void
@@ -117,5 +114,11 @@ sc_ai_agent_summarize_rules(struct sc_ai_agent *agent);
 // Clear conversation history
 void
 sc_ai_agent_clear_history(struct sc_ai_agent *agent);
+
+// Analyze screen with VLM (caller must free result, returns NULL on failure)
+char *
+sc_ai_agent_analyze_screen(struct sc_ai_agent *agent,
+                           const char *base64_data,
+                           uint16_t width, uint16_t height);
 
 #endif

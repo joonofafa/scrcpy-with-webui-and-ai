@@ -4,10 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/stat.h>
 #include <SDL2/SDL.h>
 #include <libavutil/frame.h>
 
-#include "ai/ai_ocr.h"
 #include "ai/screenshot.h"
 #include "../../deps/cjson/cJSON.h"
 #include "util/log.h"
@@ -21,32 +21,25 @@
     "2. Identify UI elements, text, buttons, etc.\n" \
     "3. Use the available tools to interact with the device\n\n" \
     "CRITICAL - Screen coordinates:\n" \
-    "- Each screenshot includes [Screen: WxH pixels] showing exact dimensions.\n" \
-    "- The screenshot image is EXACTLY WxH pixels. Use pixel coordinates.\n" \
-    "- Valid X range: 0 to W-1. Valid Y range: 0 to H-1.\n" \
-    "- (0,0) is the top-left corner. (W-1, H-1) is the bottom-right.\n" \
-    "- Do NOT normalize coordinates to 0-1000 or percentages. Use raw pixels.\n" \
-    "- Example: if screen is 1024x460 and a button is at the center, " \
-    "tap (512, 230).\n\n" \
-    "Tapping strategy:\n" \
-    "- IMPORTANT: When [Detected UI text] data is provided with coordinates, " \
-    "ALWAYS use those OCR coordinates for tapping. They are precise.\n" \
-    "- For icons or elements without OCR text, estimate the center visually.\n" \
-    "- To tap a button or UI element, aim for the CENTER of its visible area.\n" \
-    "- For text labels/buttons: the tap point is the center of the text " \
-    "bounding box, NOT the start of the text.\n" \
-    "- If a tap did not work (screen unchanged), the coordinates were likely " \
-    "off. Re-examine the screenshot carefully and try a slightly different " \
-    "position.\n" \
-    "- Tool results include the actual coordinates sent (e.g. " \
-    "\"clicked\":[x,y]). Compare these with the intended target to debug " \
-    "misses.\n\n" \
+    "- Each screenshot has a caption like 'Screenshot WxH' showing dimensions.\n" \
+    "- Use raw pixel coordinates. Valid X: 0 to W-1, Valid Y: 0 to H-1.\n" \
+    "- (0,0) is top-left. Do NOT normalize to 0-1000 or percentages.\n\n" \
+    "Tapping strategy (STRICT RULES):\n" \
+    "- VLM analysis provides cx, cy = the EXACT tap coordinates.\n" \
+    "- Call position_click with x=cx, y=cy from the VLM line.\n" \
+    "- Example: '\"Start\" cx=423 cy=187 [button]' → tap x=423, y=187.\n" \
+    "- NEVER guess or estimate coordinates. ONLY use cx/cy from VLM.\n" \
+    "- If a tap did not work (screen unchanged), try a DIFFERENT element.\n\n" \
     "IMPORTANT - Before every action:\n" \
-    "- State what you intend to tap and WHY (e.g. \"I will tap the 'Start' " \
-    "button at approximately (500,300) to begin the game.\").\n" \
+    "- State the element name, its cx/cy from VLM, and WHY.\n" \
     "- After the action, take a screenshot to verify the result.\n" \
-    "- If the screen did not change, your tap missed. Try different " \
-    "coordinates — do NOT repeat the same position."
+    "- If the screen did not change, your tap missed. Try a different " \
+    "element — do NOT repeat the same position.\n\n" \
+    "AUTONOMOUS MODE:\n" \
+    "- You have game rules. Follow them step by step WITHOUT asking.\n" \
+    "- NEVER ask the user what to do. ALWAYS decide and act.\n" \
+    "- Every response MUST include at least one tool call.\n" \
+    "- If unsure, take a screenshot first, then act on what you see."
 
 static void
 log_to_train(struct sc_ai_agent *agent, const char *role, const char *content) {
@@ -67,6 +60,194 @@ log_to_train(struct sc_ai_agent *agent, const char *role, const char *content) {
     fprintf(f, "## [%s] %s\n%s\n\n", timebuf, role,
             content ? content : "(no content)");
     fclose(f);
+}
+
+// Post-process VLM output: replace "x=N y=N w=N h=N" with computed "cx=N cy=N".
+// This reduces tokens sent to the game LLM and eliminates confusion.
+// Returns a new string (caller frees), or NULL on failure.
+static char *
+simplify_vlm_coords(const char *vlm_text) {
+    if (!vlm_text) return NULL;
+
+    size_t src_len = strlen(vlm_text);
+    size_t cap = src_len + 256;
+    char *out = malloc(cap);
+    if (!out) return strdup(vlm_text);
+
+    size_t out_len = 0;
+    const char *p = vlm_text;
+
+    while (*p) {
+        const char *eol = strchr(p, '\n');
+        size_t line_len = eol ? (size_t)(eol - p) : strlen(p);
+        const char *line_end = p + line_len;
+
+        // Parse x=N y=N w=N h=N and record their positions in the line
+        int x = -1, y = -1, w = -1, h = -1;
+        const char *first_coord = NULL; // start of "x=..."
+        const char *last_coord_end = NULL; // end of "h=NNN"
+        const char *scan = p;
+
+        while (scan < line_end) {
+            if (scan[0] == 'x' && scan[1] == '='
+                    && (scan == p || scan[-1] == ' ')) {
+                if (!first_coord) first_coord = scan;
+                x = atoi(scan + 2);
+                // skip past the number
+                const char *end = scan + 2;
+                while (end < line_end && (*end == '-' || (*end >= '0' && *end <= '9'))) end++;
+                last_coord_end = end;
+                scan = end;
+                continue;
+            } else if (scan[0] == 'y' && scan[1] == '='
+                       && (scan == p || scan[-1] == ' ')) {
+                if (!first_coord) first_coord = scan;
+                y = atoi(scan + 2);
+                const char *end = scan + 2;
+                while (end < line_end && (*end == '-' || (*end >= '0' && *end <= '9'))) end++;
+                last_coord_end = end;
+                scan = end;
+                continue;
+            } else if (scan[0] == 'w' && scan[1] == '='
+                       && (scan == p || scan[-1] == ' ')) {
+                if (!first_coord) first_coord = scan;
+                w = atoi(scan + 2);
+                const char *end = scan + 2;
+                while (end < line_end && (*end == '-' || (*end >= '0' && *end <= '9'))) end++;
+                last_coord_end = end;
+                scan = end;
+                continue;
+            } else if (scan[0] == 'h' && scan[1] == '='
+                       && (scan == p || scan[-1] == ' ')) {
+                if (!first_coord) first_coord = scan;
+                h = atoi(scan + 2);
+                const char *end = scan + 2;
+                while (end < line_end && (*end == '-' || (*end >= '0' && *end <= '9'))) end++;
+                last_coord_end = end;
+                scan = end;
+                continue;
+            }
+            scan++;
+        }
+
+        // Ensure output buffer has space
+        if (out_len + line_len + 40 >= cap) {
+            cap = (out_len + line_len + 40) * 2;
+            char *tmp = realloc(out, cap);
+            if (!tmp) break;
+            out = tmp;
+        }
+
+        if (x >= 0 && y >= 0 && w > 0 && h > 0 && first_coord && last_coord_end) {
+            // Copy everything before the first coord
+            size_t prefix_len = (size_t)(first_coord - p);
+            memcpy(out + out_len, p, prefix_len);
+            out_len += prefix_len;
+
+            // Write cx=N cy=N
+            int cx = x + w / 2;
+            int cy = y + h / 2;
+            out_len += (size_t)snprintf(out + out_len, cap - out_len,
+                                         "cx=%d cy=%d", cx, cy);
+
+            // Copy everything after the last coord value
+            size_t suffix_len = (size_t)(line_end - last_coord_end);
+            if (suffix_len > 0) {
+                memcpy(out + out_len, last_coord_end, suffix_len);
+                out_len += suffix_len;
+            }
+        } else {
+            // No coords found, copy line as-is
+            memcpy(out + out_len, p, line_len);
+            out_len += line_len;
+        }
+
+        if (eol) {
+            out[out_len++] = '\n';
+            p = eol + 1;
+        } else {
+            break;
+        }
+    }
+
+    out[out_len] = '\0';
+    return out;
+}
+
+// Call VLM to analyze a screenshot, returns description text (caller frees)
+static char *
+analyze_screen_with_vlm(struct sc_ai_agent *agent,
+                        const char *base64_data,
+                        uint16_t width, uint16_t height) {
+    sc_mutex_lock(&agent->mutex);
+    char *api_key = agent->config.api_key ? strdup(agent->config.api_key) : NULL;
+    char *vision_model = agent->vision_model ? strdup(agent->vision_model) : NULL;
+    char *base_url = agent->config.base_url ? strdup(agent->config.base_url)
+                                            : NULL;
+    sc_mutex_unlock(&agent->mutex);
+
+    if (!api_key || !vision_model) {
+        free(api_key);
+        free(vision_model);
+        free(base_url);
+        return NULL;
+    }
+
+    struct sc_openrouter_config vlm_config = {
+        .api_key = api_key,
+        .model = vision_model,
+        .base_url = base_url,
+    };
+
+    struct sc_ai_message_list vlm_msgs;
+    sc_ai_message_list_init(&vlm_msgs);
+
+    char sys_prompt[1280];
+    snprintf(sys_prompt, sizeof(sys_prompt),
+        "You are a screen analyzer for an Android game automation system. "
+        "Analyze the screenshot and list every UI element with bounding box.\n\n"
+        "Output format:\n"
+        "SCREEN: (brief scene description)\n"
+        "ELEMENTS:\n"
+        "- \"text or icon\" x=NNN y=NNN w=NNN h=NNN [button/text/icon/card]\n"
+        "...\n\n"
+        "CRITICAL rules:\n"
+        "- Image is EXACTLY %dx%d pixels. x: 0..%d, y: 0..%d\n"
+        "- x,y = top-left corner of the element bounding box\n"
+        "- w,h = width and height of the bounding box\n"
+        "- The tap target = center of box: cx=x+w/2, cy=y+h/2\n"
+        "- Include ALL visible elements: buttons, labels, icons, cards\n"
+        "- Read Korean text accurately\n"
+        "- Be concise but complete",
+        width, height, width - 1, height - 1);
+    sc_ai_message_list_push(&vlm_msgs, "system", sys_prompt);
+
+    char text[128];
+    snprintf(text, sizeof(text), "Screenshot %dx%d", width, height);
+    sc_ai_message_list_push_image(&vlm_msgs, text, base64_data);
+
+    LOGI("AI VLM: analyzing screen with %s", vision_model);
+
+    struct sc_openrouter_response resp =
+        sc_openrouter_chat(&vlm_config, &vlm_msgs, NULL);
+
+    sc_ai_message_list_destroy(&vlm_msgs);
+    free(api_key);
+    free(vision_model);
+    free(base_url);
+
+    if (!resp.success || !resp.content) {
+        LOGW("AI VLM: analysis failed: %s",
+             resp.error ? resp.error : "unknown");
+        sc_openrouter_response_destroy(&resp);
+        return NULL;
+    }
+
+    // Replace x/y/w/h with cx/cy center coordinates
+    char *simplified = simplify_vlm_coords(resp.content);
+    LOGI("AI VLM: %s", simplified ? simplified : resp.content);
+    sc_openrouter_response_destroy(&resp);
+    return simplified;
 }
 
 static bool
@@ -106,40 +287,63 @@ process_prompt(struct sc_ai_agent *agent, const char *prompt) {
             sc_ai_tools_set_frame_size(&agent->tools, orig_frame_w,
                                        orig_frame_h);
             sc_mutex_unlock(&agent->mutex);
+
+            // Save debug image
+            mkdir("/home/jhsoft/shareHub/다운/scrcpy_debug", 0755);
+            char debug_path[256];
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            snprintf(debug_path, sizeof(debug_path),
+                     "/home/jhsoft/shareHub/다운/scrcpy_debug/prompt_%ld_%03ld.jpg",
+                     ts.tv_sec, ts.tv_nsec / 1000000);
+            FILE *dbg = fopen(debug_path, "wb");
+            if (dbg) {
+                fwrite(ss.png_data, 1, ss.png_size, dbg);
+                fclose(dbg);
+                LOGI("AI debug: saved prompt image %s (%dx%d, frame=%dx%d)",
+                     debug_path, ss.width, ss.height,
+                     orig_frame_w, orig_frame_h);
+            }
         }
     }
     av_frame_free(&frame);
 
-    // Trim history to prevent token explosion (keep system + last 19 msgs)
+    // Analyze screen with VLM if configured
+    char *screen_desc = NULL;
+    bool use_vlm = false;
+
     sc_mutex_lock(&agent->mutex);
-    sc_ai_message_list_trim(&agent->messages, 20);
+    use_vlm = has_screenshot && agent->vision_model
+              && agent->vision_model[0] != '\0';
     sc_mutex_unlock(&agent->mutex);
 
-    // Run OCR on the screenshot JPEG data
-    char *ocr_text = NULL;
-    if (has_screenshot && agent->ocr_enabled) {
-        struct sc_ai_ocr_result ocr_result;
-        if (sc_ai_ocr_process(&agent->ocr, ss.png_data, ss.png_size,
-                               &ocr_result)) {
-            ocr_text = sc_ai_ocr_format_prompt(&ocr_result);
-            if (ocr_text) {
-                LOGI("AI OCR: detected %zu text regions", ocr_result.count);
-            }
-            sc_ai_ocr_result_destroy(&ocr_result);
-        }
+    if (use_vlm) {
+        screen_desc = analyze_screen_with_vlm(agent, ss.base64_data,
+                                               ss.width, ss.height);
     }
 
-    // Add user message with screenshot (include resolution info + OCR)
+    // Add user message: text-only if VLM analyzed, image if not
     sc_mutex_lock(&agent->mutex);
-    if (has_screenshot) {
+    if (has_screenshot && use_vlm && screen_desc) {
+        // VLM mode: send text-only to game model (no image tokens)
         char enhanced[8192];
-        if (ocr_text) {
+        snprintf(enhanced, sizeof(enhanced),
+                 "Screenshot %dx%d\n"
+                 "=== VLM ANALYSIS (use these EXACT coordinates) ===\n"
+                 "%s\n"
+                 "=== END VLM ANALYSIS ===\n\n%s",
+                 ss.width, ss.height, screen_desc, prompt);
+        sc_ai_message_list_push(&agent->messages, "user", enhanced);
+    } else if (has_screenshot) {
+        // Fallback: send image to game model
+        char enhanced[8192];
+        if (screen_desc) {
             snprintf(enhanced, sizeof(enhanced),
-                     "[Screen: %dx%d pixels]\n%s\n\n%s",
-                     ss.width, ss.height, ocr_text, prompt);
+                     "Screenshot %dx%d\n%s\n\n%s",
+                     ss.width, ss.height, screen_desc, prompt);
         } else {
             snprintf(enhanced, sizeof(enhanced),
-                     "[Screen: %dx%d pixels]\n%s", ss.width, ss.height,
+                     "Screenshot %dx%d\n%s", ss.width, ss.height,
                      prompt);
         }
         sc_ai_message_list_push_image(&agent->messages, enhanced,
@@ -148,7 +352,7 @@ process_prompt(struct sc_ai_agent *agent, const char *prompt) {
         sc_ai_message_list_push(&agent->messages, "user", prompt);
     }
     sc_mutex_unlock(&agent->mutex);
-    free(ocr_text);
+    free(screen_desc);
 
     if (has_screenshot) {
         sc_ai_screenshot_destroy(&ss);
@@ -156,13 +360,22 @@ process_prompt(struct sc_ai_agent *agent, const char *prompt) {
 
     log_to_train(agent, "user", prompt);
 
-    // Call API in a loop (handle tool calls, max 3 iterations)
-    int max_iterations = 3;
-    for (int iter = 0; iter < max_iterations; iter++) {
+    // Call API in a loop (handle tool calls)
+    // In auto mode, keep looping: LLM acts → screenshot+VLM → LLM acts → ...
+    // In manual mode, max 5 tool-call iterations then stop.
+    int consecutive_text = 0; // track text-only responses to avoid infinite loop
+    for (int iter = 0; ; iter++) {
         sc_mutex_lock(&agent->mutex);
         if (agent->stopped) {
             sc_mutex_unlock(&agent->mutex);
             return false;
+        }
+        bool is_auto = agent->auto_running;
+
+        // In manual mode, cap at 5 iterations
+        if (!is_auto && iter >= 5) {
+            sc_mutex_unlock(&agent->mutex);
+            break;
         }
 
         // Check if API key is set
@@ -186,10 +399,15 @@ process_prompt(struct sc_ai_agent *agent, const char *prompt) {
 
         const char *tools_json = sc_ai_tools_get_definitions();
 
+        // Trim history to prevent token explosion (keep system + last 19)
+        sc_ai_message_list_trim(&agent->messages, 20);
+
         // Build request body while holding mutex (reads messages, fast)
         char *request_body = sc_openrouter_build_body(
             &safe_config, &agent->messages, tools_json);
         sc_mutex_unlock(&agent->mutex);
+
+        LOGI("AI agent: LLM call iteration %d (auto=%d)", iter, is_auto);
 
         // Perform HTTP call WITHOUT holding mutex (slow, blocks for seconds)
         struct sc_openrouter_response resp =
@@ -215,6 +433,7 @@ process_prompt(struct sc_ai_agent *agent, const char *prompt) {
 
         // If there are tool calls, execute them
         if (resp.tool_calls.count > 0) {
+            consecutive_text = 0;
             if (resp.content && resp.content[0]) {
                 LOGI("AI response: %s", resp.content);
             }
@@ -274,9 +493,98 @@ process_prompt(struct sc_ai_agent *agent, const char *prompt) {
             sc_mutex_unlock(&agent->mutex);
             log_to_train(agent, "assistant", resp.content);
         }
-
         sc_openrouter_response_destroy(&resp);
-        break;
+
+        // In auto mode: take a fresh screenshot+VLM and continue the loop
+        // so LLM can decide the next action without external prompting.
+        sc_mutex_lock(&agent->mutex);
+        is_auto = agent->auto_running && !agent->stopped;
+        sc_mutex_unlock(&agent->mutex);
+
+        if (!is_auto) {
+            break; // manual mode: done
+        }
+
+        consecutive_text++;
+        if (consecutive_text >= 3) {
+            LOGW("AI agent: %d consecutive text-only responses, "
+                 "stopping to avoid infinite loop", consecutive_text);
+            break;
+        }
+
+        // Auto-continue: capture screenshot + VLM, add as user message
+        LOGI("AI agent: auto-continue, taking fresh screenshot+VLM");
+        SDL_Delay(500); // let UI settle after last action
+
+        AVFrame *auto_frame = av_frame_alloc();
+        if (!auto_frame) {
+            break;
+        }
+
+        bool got_frame = sc_ai_frame_sink_consume(agent->frame_sink, auto_frame);
+        if (!got_frame) {
+            av_frame_free(&auto_frame);
+            break;
+        }
+
+        uint16_t auto_orig_w = (uint16_t) auto_frame->width;
+        uint16_t auto_orig_h = (uint16_t) auto_frame->height;
+
+        struct sc_ai_screenshot auto_ss = {0};
+        if (!sc_ai_screenshot_encode(&auto_ss, auto_frame)) {
+            av_frame_free(&auto_frame);
+            break;
+        }
+        av_frame_free(&auto_frame);
+
+        // VLM analysis
+        char *auto_desc = NULL;
+        sc_mutex_lock(&agent->mutex);
+        bool auto_vlm = agent->vision_model && agent->vision_model[0] != '\0';
+        sc_mutex_unlock(&agent->mutex);
+
+        if (auto_vlm) {
+            auto_desc = analyze_screen_with_vlm(agent, auto_ss.base64_data,
+                                                 auto_ss.width, auto_ss.height);
+        }
+
+        // Update agent state
+        sc_mutex_lock(&agent->mutex);
+        free(agent->latest_png_data);
+        agent->latest_png_data = malloc(auto_ss.png_size);
+        if (agent->latest_png_data) {
+            memcpy(agent->latest_png_data, auto_ss.png_data, auto_ss.png_size);
+            agent->latest_png_size = auto_ss.png_size;
+        }
+        agent->screen_width = auto_ss.width;
+        agent->screen_height = auto_ss.height;
+        sc_ai_tools_set_screen_size(&agent->tools, auto_ss.width,
+                                     auto_ss.height);
+        sc_ai_tools_set_frame_size(&agent->tools, auto_orig_w, auto_orig_h);
+
+        // Add as user message
+        char auto_text[8192];
+        if (auto_vlm && auto_desc) {
+            snprintf(auto_text, sizeof(auto_text),
+                     "Screenshot %dx%d (fresh)\n"
+                     "=== VLM ANALYSIS (use these EXACT coordinates) ===\n"
+                     "%s\n"
+                     "=== END VLM ANALYSIS ===\n\n"
+                     "Continue playing. Decide your next action.",
+                     auto_ss.width, auto_ss.height, auto_desc);
+            sc_ai_message_list_push(&agent->messages, "user", auto_text);
+        } else {
+            snprintf(auto_text, sizeof(auto_text),
+                     "Screenshot %dx%d (fresh)\nContinue playing.",
+                     auto_ss.width, auto_ss.height);
+            sc_ai_message_list_push_image(&agent->messages, auto_text,
+                                           auto_ss.base64_data);
+        }
+        sc_mutex_unlock(&agent->mutex);
+
+        free(auto_desc);
+        sc_ai_screenshot_destroy(&auto_ss);
+        // continue the loop — LLM will see the new screenshot and act
     }
 
     return true;
@@ -329,7 +637,6 @@ auto_thread_fn(void *data) {
         if (running && has_rules && !rules_sent) {
             rules_copy = strdup(agent->game_rules);
         }
-        int repeats = agent->repeat_count;
         sc_mutex_unlock(&agent->mutex);
 
         if (!running) {
@@ -337,15 +644,10 @@ auto_thread_fn(void *data) {
             SDL_Delay(100);
             continue;
         }
-        if (!has_rules) {
-            SDL_Delay(100);
-            continue;
-        }
 
-        // Build prompt
+        // Build prompt: rules on first run, short continuation after
         char *prompt;
         if (rules_copy) {
-            // First iteration: send full rules
             size_t prompt_len = strlen(rules_copy) + 512;
             prompt = malloc(prompt_len);
             if (prompt) {
@@ -357,28 +659,20 @@ auto_thread_fn(void *data) {
             }
             free(rules_copy);
             rules_sent = true;
-        } else if (repeats >= 3) {
-            // Same coordinates repeated — button is not being hit
-            prompt = strdup(
-                "WARNING: Your last several taps hit the SAME coordinates "
-                "but the screen did not change. The button is NOT being "
-                "pressed. You are likely tapping the wrong position. "
-                "Take a fresh screenshot, carefully re-examine the UI, "
-                "and try a DIFFERENT coordinate. State what you see and "
-                "where you will tap next.");
         } else {
-            // Normal continuation
+            // process_prompt handles auto-continuation internally,
+            // so this only fires when process_prompt exits (e.g. after
+            // consecutive text-only responses or errors).
             prompt = strdup(
-                "Continue playing. Take a screenshot and decide your "
-                "next action according to the game rules. Before each "
-                "action, briefly state WHAT you intend to tap and WHY.");
+                "Take a screenshot and continue playing according to "
+                "the game rules.");
         }
 
         if (prompt) {
             sc_ai_agent_submit_prompt(agent, prompt);
         }
 
-        // Wait for worker to finish processing (completion-based)
+        // Wait for worker to finish
         sc_mutex_lock(&agent->mutex);
         while (!agent->stopped && agent->auto_running
                 && (agent->worker_busy || agent->has_pending_prompt)) {
@@ -386,7 +680,7 @@ auto_thread_fn(void *data) {
         }
         sc_mutex_unlock(&agent->mutex);
 
-        // Brief cooldown to let UI respond before next iteration
+        // Brief cooldown before next cycle
         SDL_Delay(1000);
     }
 
@@ -404,7 +698,7 @@ sc_ai_agent_init(struct sc_ai_agent *agent,
 
     agent->config.api_key = params->api_key ? strdup(params->api_key) : NULL;
     agent->config.model = params->model ? strdup(params->model)
-                                        : strdup("google/gemma-3-27b-it:free");
+                                        : strdup("openai/gpt-oss-120b");
     agent->config.base_url = params->base_url ? strdup(params->base_url)
                                               : NULL;
 
@@ -448,14 +742,6 @@ sc_ai_agent_start(struct sc_ai_agent *agent) {
         return false;
     }
 
-    // Start OCR daemon (non-fatal if unavailable)
-    agent->ocr_enabled = sc_ai_ocr_start(&agent->ocr);
-    if (agent->ocr_enabled) {
-        LOGI("AI OCR: enabled");
-    } else {
-        LOGW("AI OCR: disabled (PaddleOCR not available)");
-    }
-
     agent->stopped = false;
 
     if (!sc_thread_create(&agent->worker_thread, worker_thread_fn,
@@ -486,10 +772,6 @@ sc_ai_agent_stop(struct sc_ai_agent *agent) {
     sc_cond_signal(&agent->cond);
     sc_mutex_unlock(&agent->mutex);
 
-    if (agent->ocr_enabled) {
-        sc_ai_ocr_stop(&agent->ocr);
-        agent->ocr_enabled = false;
-    }
 }
 
 void
@@ -504,6 +786,7 @@ sc_ai_agent_destroy(struct sc_ai_agent *agent) {
     free((void *)agent->config.api_key);
     free((void *)agent->config.model);
     free((void *)agent->config.base_url);
+    free(agent->vision_model);
     free(agent->system_prompt);
     free(agent->pending_prompt);
     free(agent->latest_png_data);
@@ -530,14 +813,29 @@ void
 sc_ai_agent_set_config(struct sc_ai_agent *agent,
                        const char *api_key,
                        const char *model,
-                       const char *base_url) {
+                       const char *base_url,
+                       const char *vision_model) {
     sc_mutex_lock(&agent->mutex);
-    free((void *)agent->config.api_key);
-    free((void *)agent->config.model);
-    free((void *)agent->config.base_url);
-    agent->config.api_key = api_key ? strdup(api_key) : NULL;
-    agent->config.model = model ? strdup(model) : NULL;
-    agent->config.base_url = base_url ? strdup(base_url) : NULL;
+    // Only update fields that are provided (NULL = keep existing)
+    if (api_key) {
+        free((void *)agent->config.api_key);
+        agent->config.api_key = strdup(api_key);
+    }
+    if (model) {
+        free((void *)agent->config.model);
+        agent->config.model = strdup(model);
+    }
+    if (base_url) {
+        free((void *)agent->config.base_url);
+        agent->config.base_url = strdup(base_url);
+    }
+    if (vision_model) {
+        free(agent->vision_model);
+        agent->vision_model = strdup(vision_model);
+    }
+    LOGI("AI config: model=%s, vision=%s",
+         agent->config.model ? agent->config.model : "(none)",
+         agent->vision_model ? agent->vision_model : "(none)");
     sc_mutex_unlock(&agent->mutex);
 }
 
@@ -676,4 +974,11 @@ sc_ai_agent_clear_history(struct sc_ai_agent *agent) {
     sc_ai_message_list_init(&agent->messages);
     sc_ai_message_list_push(&agent->messages, "system", agent->system_prompt);
     sc_mutex_unlock(&agent->mutex);
+}
+
+char *
+sc_ai_agent_analyze_screen(struct sc_ai_agent *agent,
+                           const char *base64_data,
+                           uint16_t width, uint16_t height) {
+    return analyze_screen_with_vlm(agent, base64_data, width, height);
 }

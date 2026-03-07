@@ -128,6 +128,8 @@ build_state_json(struct sc_ai_agent *agent) {
     }
     cJSON_AddStringToObject(root, "config_model",
         agent->config.model ? agent->config.model : "");
+    cJSON_AddStringToObject(root, "config_vision_model",
+        agent->vision_model ? agent->vision_model : "");
     cJSON_AddStringToObject(root, "config_base_url",
         agent->config.base_url ? agent->config.base_url : "");
 
@@ -452,13 +454,17 @@ handle_event(struct mg_connection *c, int ev, void *ev_data) {
             cJSON *ak = cJSON_GetObjectItem(body, "api_key");
             cJSON *md = cJSON_GetObjectItem(body, "model");
             cJSON *bu = cJSON_GetObjectItem(body, "base_url");
+            cJSON *vm = cJSON_GetObjectItem(body, "vision_model");
             const char *api_key_val = (cJSON_IsString(ak) && ak->valuestring[0])
                                   ? ak->valuestring : NULL;
             const char *model = (cJSON_IsString(md) && md->valuestring[0])
                                 ? md->valuestring : NULL;
             const char *base_url = (cJSON_IsString(bu) && bu->valuestring[0])
                                    ? bu->valuestring : NULL;
-            sc_ai_agent_set_config(agent, api_key_val, model, base_url);
+            const char *vision_model = (cJSON_IsString(vm) && vm->valuestring[0])
+                                       ? vm->valuestring : NULL;
+            sc_ai_agent_set_config(agent, api_key_val, model, base_url,
+                                   vision_model);
             cJSON_Delete(body);
             send_ok(c);
             return;

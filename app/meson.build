@@ -116,7 +116,6 @@ if ai_panel_support
         'src/ai/ai_frame_sink.c',
         'src/ai/screenshot.c',
         'src/ai/openrouter.c',
-        'src/ai/ai_ocr.c',
         'src/ai/ai_tools.c',
         'src/ai/ai_agent.c',
         'src/ai/web_server.c',
@@ -240,10 +239,6 @@ install_data('data/zsh-completion/_scrcpy',
 install_data('data/bash-completion/scrcpy',
              install_dir: datadir / 'bash-completion/completions')
 
-if ai_panel_support
-    install_data('data/ai_ocr_server.py',
-                 install_dir: datadir / 'scrcpy')
-endif
 
 # Desktop entry file for application launchers
 if host_machine.system() == 'linux'

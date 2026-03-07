@@ -11,7 +11,7 @@
 // Max dimension for AI screenshots. VLMs internally resize images, so sending
 // at native resolution (e.g. 2400x1080) causes coordinate mismatches.
 // Downscaling to 1024px ensures the AI's coordinate space matches what it sees.
-#define AI_SCREENSHOT_MAX_DIM 768
+#define AI_SCREENSHOT_MAX_DIM 1280
 
 bool
 sc_ai_screenshot_encode(struct sc_ai_screenshot *ss, const AVFrame *frame) {

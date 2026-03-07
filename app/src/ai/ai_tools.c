@@ -2,12 +2,13 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <sys/stat.h>
 #include <SDL2/SDL.h>
 #include <libavutil/frame.h>
 
 #include "ai/ai_agent.h"
 #include "ai/ai_frame_sink.h"
-#include "ai/ai_ocr.h"
 #include "ai/screenshot.h"
 #include "../../deps/cjson/cJSON.h"
 #include "android/input.h"
@@ -260,6 +261,11 @@ tool_position_click(struct sc_ai_tools *tools, cJSON *args) {
     bool ok = inject_touch(tools->controller, fw, fh, fx, fy,
                            AMOTION_EVENT_ACTION_DOWN);
     if (ok) {
+        SDL_Delay(30);
+        // Send MOVE event — some game engines require it for tap recognition
+        inject_touch(tools->controller, fw, fh, fx, fy,
+                     AMOTION_EVENT_ACTION_MOVE);
+        SDL_Delay(50);
         ok = inject_touch(tools->controller, fw, fh, fx, fy,
                           AMOTION_EVENT_ACTION_UP);
     }
@@ -517,18 +523,37 @@ tool_screenshot(struct sc_ai_tools *tools, cJSON *args) {
     uint16_t w = ss.width;
     uint16_t h = ss.height;
 
-    // Run OCR on the screenshot
-    char *ocr_text = NULL;
-    if (agent->ocr_enabled) {
-        struct sc_ai_ocr_result ocr_result;
-        if (sc_ai_ocr_process(&agent->ocr, ss.png_data, ss.png_size,
-                               &ocr_result)) {
-            ocr_text = sc_ai_ocr_format_prompt(&ocr_result);
-            sc_ai_ocr_result_destroy(&ocr_result);
+    // Analyze screen with VLM
+    char *screen_desc = NULL;
+    bool use_vlm = false;
+
+    sc_mutex_lock(&agent->mutex);
+    use_vlm = agent->vision_model && agent->vision_model[0] != '\0';
+    sc_mutex_unlock(&agent->mutex);
+
+    if (use_vlm) {
+        screen_desc = sc_ai_agent_analyze_screen(agent, ss.base64_data, w, h);
+    }
+
+    // Save debug image
+    mkdir("/home/jhsoft/shareHub/다운/scrcpy_debug", 0755);
+    {
+        char debug_path[256];
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        snprintf(debug_path, sizeof(debug_path),
+                 "/home/jhsoft/shareHub/다운/scrcpy_debug/tool_ss_%ld_%03ld.jpg",
+                 ts.tv_sec, ts.tv_nsec / 1000000);
+        FILE *dbg = fopen(debug_path, "wb");
+        if (dbg) {
+            fwrite(ss.png_data, 1, ss.png_size, dbg);
+            fclose(dbg);
+            LOGI("AI debug: saved tool screenshot %s (%dx%d, frame=%dx%d)",
+                 debug_path, w, h, orig_w, orig_h);
         }
     }
 
-    // Update agent state and add screenshot as user image message
+    // Update agent state
     sc_mutex_lock(&agent->mutex);
     free(agent->latest_png_data);
     agent->latest_png_data = malloc(ss.png_size);
@@ -541,19 +566,28 @@ tool_screenshot(struct sc_ai_tools *tools, cJSON *args) {
     sc_ai_tools_set_screen_size(tools, w, h);
     sc_ai_tools_set_frame_size(tools, orig_w, orig_h);
 
+    // Add message: text-only if VLM, image if not
     char text[4096];
-    if (ocr_text) {
+    if (use_vlm && screen_desc) {
         snprintf(text, sizeof(text),
-                 "[Screen: %dx%d pixels] (fresh screenshot)\n%s", w, h,
-                 ocr_text);
+                 "Screenshot %dx%d (fresh)\n"
+                 "=== VLM ANALYSIS (use these EXACT coordinates) ===\n"
+                 "%s\n"
+                 "=== END VLM ANALYSIS ===", w, h,
+                 screen_desc);
+        sc_ai_message_list_push(&agent->messages, "user", text);
+    } else if (screen_desc) {
+        snprintf(text, sizeof(text),
+                 "Screenshot %dx%d (fresh)\n%s", w, h, screen_desc);
+        sc_ai_message_list_push_image(&agent->messages, text, ss.base64_data);
     } else {
         snprintf(text, sizeof(text),
-                 "[Screen: %dx%d pixels] (fresh screenshot)", w, h);
+                 "Screenshot %dx%d (fresh)", w, h);
+        sc_ai_message_list_push_image(&agent->messages, text, ss.base64_data);
     }
-    sc_ai_message_list_push_image(&agent->messages, text, ss.base64_data);
     sc_mutex_unlock(&agent->mutex);
 
-    free(ocr_text);
+    free(screen_desc);
     sc_ai_screenshot_destroy(&ss);
 
     char result[256];
@@ -600,6 +634,10 @@ sc_ai_tools_execute(struct sc_ai_tools *tools,
                      function_name);
         }
     }
+
+    LOGI("AI tool result: %s(%s) => %s",
+         function_name, arguments_json ? arguments_json : "",
+         result ? result : "(null)");
 
     cJSON_Delete(args);
     return result;
