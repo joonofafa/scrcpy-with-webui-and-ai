@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <sys/stat.h>
 #include <SDL2/SDL.h>
 #include <libavutil/frame.h>
 
@@ -399,23 +398,6 @@ process_prompt(struct sc_ai_agent *agent, const char *prompt) {
             sc_ai_tools_set_frame_size(&agent->tools, orig_frame_w,
                                        orig_frame_h);
             sc_mutex_unlock(&agent->mutex);
-
-            // Save debug image
-            mkdir("/home/jhsoft/shareHub/다운/scrcpy_debug", 0755);
-            char debug_path[256];
-            struct timespec ts;
-            clock_gettime(CLOCK_REALTIME, &ts);
-            snprintf(debug_path, sizeof(debug_path),
-                     "/home/jhsoft/shareHub/다운/scrcpy_debug/prompt_%ld_%03ld.jpg",
-                     ts.tv_sec, ts.tv_nsec / 1000000);
-            FILE *dbg = fopen(debug_path, "wb");
-            if (dbg) {
-                fwrite(ss.png_data, 1, ss.png_size, dbg);
-                fclose(dbg);
-                LOGI("AI debug: saved prompt image %s (%dx%d, frame=%dx%d)",
-                     debug_path, ss.width, ss.height,
-                     orig_frame_w, orig_frame_h);
-            }
         }
     }
     av_frame_free(&frame);

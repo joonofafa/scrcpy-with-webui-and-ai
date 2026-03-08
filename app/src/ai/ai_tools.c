@@ -2,8 +2,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-#include <sys/stat.h>
 #include <SDL2/SDL.h>
 #include <libavutil/frame.h>
 
@@ -602,24 +600,6 @@ tool_screenshot(struct sc_ai_tools *tools, cJSON *args) {
 
     if (use_vlm) {
         screen_desc = sc_ai_agent_analyze_screen(agent, ss.base64_data, w, h);
-    }
-
-    // Save debug image
-    mkdir("/home/jhsoft/shareHub/다운/scrcpy_debug", 0755);
-    {
-        char debug_path[256];
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        snprintf(debug_path, sizeof(debug_path),
-                 "/home/jhsoft/shareHub/다운/scrcpy_debug/tool_ss_%ld_%03ld.jpg",
-                 ts.tv_sec, ts.tv_nsec / 1000000);
-        FILE *dbg = fopen(debug_path, "wb");
-        if (dbg) {
-            fwrite(ss.png_data, 1, ss.png_size, dbg);
-            fclose(dbg);
-            LOGI("AI debug: saved tool screenshot %s (%dx%d, frame=%dx%d)",
-                 debug_path, w, h, orig_w, orig_h);
-        }
     }
 
     // Update agent state
