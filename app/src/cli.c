@@ -119,6 +119,7 @@ enum {
     OPT_AI_API_KEY,
     OPT_AI_MODEL,
     OPT_AI_BASE_URL,
+    OPT_AI_VISION_MODEL,
     OPT_AI_WEB_PORT,
 #endif
 };
@@ -1096,6 +1097,13 @@ static const struct sc_option options[] = {
         .argdesc = "url",
         .text = "Set the base URL for the AI API.\n"
                 "Default is \"https://openrouter.ai/api/v1\".",
+    },
+    {
+        .longopt_id = OPT_AI_VISION_MODEL,
+        .longopt = "ai-vision-model",
+        .argdesc = "model",
+        .text = "Set the vision model (VLM) for screen analysis.\n"
+                "Default is \"google/gemini-2.5-flash-lite\".",
     },
     {
         .longopt_id = OPT_AI_WEB_PORT,
@@ -2875,6 +2883,9 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                 break;
             case OPT_AI_BASE_URL:
                 opts->ai_base_url = optarg;
+                break;
+            case OPT_AI_VISION_MODEL:
+                opts->ai_vision_model = optarg;
                 break;
             case OPT_AI_WEB_PORT: {
                 long val = strtol(optarg, NULL, 0);

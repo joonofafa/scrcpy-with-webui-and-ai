@@ -332,6 +332,7 @@ struct scrcpy_options {
     const char *ai_api_key;
     const char *ai_model;
     const char *ai_base_url;
+    const char *ai_vision_model;
     uint16_t ai_web_port;
 #endif
 };

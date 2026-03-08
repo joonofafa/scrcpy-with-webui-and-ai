@@ -12,6 +12,8 @@
 #include "ai/openrouter.h"
 #include "util/thread.h"
 
+struct cJSON;
+
 struct sc_ai_agent {
     struct sc_ai_frame_sink *frame_sink;
     struct sc_ai_tools tools;
@@ -50,13 +52,23 @@ struct sc_ai_agent {
     // Game rules for auto-play
     char *game_rules;
 
-    // Repeated action detection
+    // Guardrails
     int32_t last_touch_x;
     int32_t last_touch_y;
-    int repeat_count;
+    int repeat_count;        // same-coordinate tap count
+    uint32_t last_screen_hash;
+    int same_screen_count;   // consecutive identical screenshot count
 
     // Train log
     char *train_log_path;
+
+    // Recording
+    bool recording;
+    int record_count;
+    char *record_dir;  // directory for current recording session
+
+    // Train phase: decision tree JSON
+    char *train_tree_json;
 };
 
 struct sc_ai_agent_params {
@@ -65,6 +77,7 @@ struct sc_ai_agent_params {
     const char *api_key;
     const char *model;
     const char *base_url;
+    const char *vision_model;
 };
 
 bool
@@ -115,10 +128,42 @@ sc_ai_agent_summarize_rules(struct sc_ai_agent *agent);
 void
 sc_ai_agent_clear_history(struct sc_ai_agent *agent);
 
+// Recording control
+void
+sc_ai_agent_set_recording(struct sc_ai_agent *agent, bool recording);
+
+void
+sc_ai_agent_clear_recording(struct sc_ai_agent *agent);
+
+bool
+sc_ai_agent_record_capture(struct sc_ai_agent *agent,
+                           int32_t x, int32_t y,
+                           uint16_t w, uint16_t h);
+
 // Analyze screen with VLM (caller must free result, returns NULL on failure)
 char *
 sc_ai_agent_analyze_screen(struct sc_ai_agent *agent,
                            const char *base64_data,
                            uint16_t width, uint16_t height);
+
+// Train phase: list recording sessions (caller must cJSON_Delete)
+struct cJSON *
+sc_ai_agent_list_sessions(void);
+
+// Train phase: get captures from a session (caller must cJSON_Delete)
+struct cJSON *
+sc_ai_agent_get_session(const char *session_name);
+
+// Train phase: analyze a single capture for state labeling (caller must free)
+char *
+sc_ai_agent_analyze_capture(struct sc_ai_agent *agent,
+                            const char *session_name, int index);
+
+// Train phase: set/get decision tree JSON
+void
+sc_ai_agent_set_train_tree(struct sc_ai_agent *agent, const char *json);
+
+char *
+sc_ai_agent_get_train_tree(struct sc_ai_agent *agent);
 
 #endif

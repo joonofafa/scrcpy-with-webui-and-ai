@@ -118,6 +118,7 @@ const struct scrcpy_options scrcpy_options_default = {
     .ai_api_key = NULL,
     .ai_model = NULL,
     .ai_base_url = NULL,
+    .ai_vision_model = NULL,
     .ai_web_port = 8080,
 #endif
 };

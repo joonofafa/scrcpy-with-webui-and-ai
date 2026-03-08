@@ -52,12 +52,14 @@ static const char TOOLS_JSON[] =
 "    \"type\": \"function\","
 "    \"function\": {"
 "      \"name\": \"position_click\","
-"      \"description\": \"Tap at a specific screen position (touch down + up)\","
+"      \"description\": \"Tap at a specific screen position. Optionally pass w,h bounding box — if the tap misses, retry offsets within the box are returned.\","
 "      \"parameters\": {"
 "        \"type\": \"object\","
 "        \"properties\": {"
-"          \"x\": {\"type\": \"integer\", \"description\": \"X coordinate in pixels\"},"
-"          \"y\": {\"type\": \"integer\", \"description\": \"Y coordinate in pixels\"}"
+"          \"x\": {\"type\": \"integer\", \"description\": \"X coordinate in pixels (center of target)\"},"
+"          \"y\": {\"type\": \"integer\", \"description\": \"Y coordinate in pixels (center of target)\"},"
+"          \"w\": {\"type\": \"integer\", \"description\": \"Bounding box width (optional, for retry offsets)\"},"
+"          \"h\": {\"type\": \"integer\", \"description\": \"Bounding box height (optional, for retry offsets)\"}"
 "        },"
 "        \"required\": [\"x\", \"y\"]"
 "      }"
@@ -272,6 +274,11 @@ tool_position_click(struct sc_ai_tools *tools, cJSON *args) {
 
     int32_t x = jx->valueint;
     int32_t y = jy->valueint;
+    cJSON *jw = cJSON_GetObjectItem(args, "w");
+    cJSON *jh = cJSON_GetObjectItem(args, "h");
+    int32_t box_w = (jw && jw->valueint > 0) ? jw->valueint : 0;
+    int32_t box_h = (jh && jh->valueint > 0) ? jh->valueint : 0;
+
     uint16_t sw = tools->screen_width;
     uint16_t sh = tools->screen_height;
     clamp_coords(&x, &y, sw, sh);
@@ -287,14 +294,14 @@ tool_position_click(struct sc_ai_tools *tools, cJSON *args) {
         return strdup("{\"error\": \"invalid screen/frame dimensions\"}");
     }
 
-    LOGI("AI tool: position_click(%d, %d) screen=%dx%d -> frame(%d, %d) frame=%dx%d",
-         x, y, sw, sh, fx, fy, fw, fh);
+    LOGI("AI tool: position_click(%d, %d, box=%dx%d) screen=%dx%d -> "
+         "frame(%d, %d) frame=%dx%d",
+         x, y, box_w, box_h, sw, sh, fx, fy, fw, fh);
 
     bool ok = inject_touch(tools->controller, fw, fh, fx, fy,
                            AMOTION_EVENT_ACTION_DOWN);
     if (ok) {
         SDL_Delay(30);
-        // Send MOVE event — some game engines require it for tap recognition
         inject_touch(tools->controller, fw, fh, fx, fy,
                      AMOTION_EVENT_ACTION_MOVE);
         SDL_Delay(50);
@@ -302,7 +309,6 @@ tool_position_click(struct sc_ai_tools *tools, cJSON *args) {
                           AMOTION_EVENT_ACTION_UP);
     }
 
-    // Brief delay to let the UI respond to the tap
     if (ok) {
         SDL_Delay(150);
     }
@@ -311,9 +317,29 @@ tool_position_click(struct sc_ai_tools *tools, cJSON *args) {
         if (tools->agent) {
             sc_ai_agent_record_touch(tools->agent, x, y);
         }
-        char buf[128];
+        // If bounding box provided, suggest retry offsets (±25% of box)
+        if (box_w > 10 && box_h > 10) {
+            int32_t ox = box_w / 4;
+            int32_t oy = box_h / 4;
+            char buf[384];
+            snprintf(buf, sizeof(buf),
+                     "{\"success\":true,\"clicked\":[%d,%d],"
+                     "\"screen\":[%d,%d],"
+                     "\"hint\":\"Take screenshot to verify. "
+                     "If tap missed, retry with these offsets:\","
+                     "\"retry_offsets\":["
+                     "[%d,%d],[%d,%d],[%d,%d],[%d,%d]]}",
+                     (int)x, (int)y, (int)sw, (int)sh,
+                     (int)(x - ox), (int)y,
+                     (int)(x + ox), (int)y,
+                     (int)x, (int)(y - oy),
+                     (int)x, (int)(y + oy));
+            return strdup(buf);
+        }
+        char buf[192];
         snprintf(buf, sizeof(buf),
-                 "{\"success\":true,\"clicked\":[%d,%d],\"screen\":[%d,%d]}",
+                 "{\"success\":true,\"clicked\":[%d,%d],\"screen\":[%d,%d],"
+                 "\"hint\":\"Take screenshot to verify the result.\"}",
                  (int)x, (int)y, (int)sw, (int)sh);
         return strdup(buf);
     }

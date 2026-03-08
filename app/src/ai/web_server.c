@@ -115,6 +115,10 @@ build_state_json(struct sc_ai_agent *agent) {
 
     // Auto-play state
     cJSON_AddBoolToObject(root, "auto_running", agent->auto_running);
+
+    // Recording state
+    cJSON_AddBoolToObject(root, "recording", agent->recording);
+    cJSON_AddNumberToObject(root, "record_count", agent->record_count);
     cJSON_AddStringToObject(root, "game_rules",
         agent->game_rules ? agent->game_rules : "");
 
@@ -474,6 +478,210 @@ handle_event(struct mg_connection *c, int ev, void *ev_data) {
         if (mg_match(hm->method, mg_str("POST"), NULL)
                 && mg_match(hm->uri, mg_str("/api/clear"), NULL)) {
             sc_ai_agent_clear_history(agent);
+            send_ok(c);
+            return;
+        }
+
+        // POST /api/record/start
+        if (mg_match(hm->method, mg_str("POST"), NULL)
+                && mg_match(hm->uri, mg_str("/api/record/start"), NULL)) {
+            sc_ai_agent_set_recording(agent, true);
+            send_ok(c);
+            return;
+        }
+
+        // POST /api/record/stop
+        if (mg_match(hm->method, mg_str("POST"), NULL)
+                && mg_match(hm->uri, mg_str("/api/record/stop"), NULL)) {
+            sc_ai_agent_set_recording(agent, false);
+            send_ok(c);
+            return;
+        }
+
+        // POST /api/record/clear
+        if (mg_match(hm->method, mg_str("POST"), NULL)
+                && mg_match(hm->uri, mg_str("/api/record/clear"), NULL)) {
+            sc_ai_agent_clear_recording(agent);
+            send_ok(c);
+            return;
+        }
+
+        // POST /api/record/capture
+        if (mg_match(hm->method, mg_str("POST"), NULL)
+                && mg_match(hm->uri, mg_str("/api/record/capture"), NULL)) {
+            cJSON *body = parse_body(hm);
+            if (!body) {
+                send_error(c, 400, "invalid json");
+                return;
+            }
+            cJSON *jx = cJSON_GetObjectItem(body, "x");
+            cJSON *jy = cJSON_GetObjectItem(body, "y");
+            cJSON *jw = cJSON_GetObjectItem(body, "w");
+            cJSON *jh = cJSON_GetObjectItem(body, "h");
+            int32_t rx = jx ? jx->valueint : 0;
+            int32_t ry = jy ? jy->valueint : 0;
+            uint16_t rw = jw ? (uint16_t)jw->valueint : 0;
+            uint16_t rh = jh ? (uint16_t)jh->valueint : 0;
+            sc_ai_agent_record_capture(agent, rx, ry, rw, rh);
+            cJSON_Delete(body);
+            send_ok(c);
+            return;
+        }
+
+        // GET /api/train/sessions
+        if (mg_match(hm->method, mg_str("GET"), NULL)
+                && mg_match(hm->uri, mg_str("/api/train/sessions"), NULL)) {
+            cJSON *sessions = sc_ai_agent_list_sessions();
+            send_json_response(c, sessions);
+            return;
+        }
+
+        // GET /api/train/session?name=XXX
+        if (mg_match(hm->method, mg_str("GET"), NULL)
+                && mg_match(hm->uri, mg_str("/api/train/session"), NULL)) {
+            char name_buf[256];
+            int r = mg_http_get_var(&hm->query, "name",
+                                     name_buf, sizeof(name_buf));
+            if (r <= 0) {
+                send_error(c, 400, "missing name parameter");
+                return;
+            }
+            cJSON *captures = sc_ai_agent_get_session(name_buf);
+            send_json_response(c, captures);
+            return;
+        }
+
+        // GET /api/train/image?session=XXX&index=N
+        if (mg_match(hm->method, mg_str("GET"), NULL)
+                && mg_match(hm->uri, mg_str("/api/train/image"), NULL)) {
+            char sess_buf[256], idx_buf[32];
+            int r1 = mg_http_get_var(&hm->query, "session",
+                                      sess_buf, sizeof(sess_buf));
+            int r2 = mg_http_get_var(&hm->query, "index",
+                                      idx_buf, sizeof(idx_buf));
+            if (r1 <= 0 || r2 <= 0) {
+                send_error(c, 400, "missing session or index");
+                return;
+            }
+            // Prevent path traversal
+            if (strstr(sess_buf, "..") || strchr(sess_buf, '/')) {
+                send_error(c, 400, "invalid session name");
+                return;
+            }
+            int idx = atoi(idx_buf);
+            if (idx <= 0) {
+                send_error(c, 400, "invalid index");
+                return;
+            }
+            const char *home = getenv("HOME");
+            if (!home) {
+                send_error(c, 500, "HOME not set");
+                return;
+            }
+            char img_path[1024];
+            snprintf(img_path, sizeof(img_path),
+                     "%s/scrcpy_records/%s/%04d.jpg", home, sess_buf, idx);
+            FILE *f = fopen(img_path, "rb");
+            if (!f) {
+                send_error(c, 404, "image not found");
+                return;
+            }
+            fseek(f, 0, SEEK_END);
+            long fsize = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            if (fsize <= 0 || fsize > 10 * 1024 * 1024) {
+                fclose(f);
+                send_error(c, 500, "invalid file size");
+                return;
+            }
+            uint8_t *img_data = malloc((size_t)fsize);
+            if (!img_data) {
+                fclose(f);
+                send_error(c, 500, "out of memory");
+                return;
+            }
+            size_t nread = fread(img_data, 1, (size_t)fsize, f);
+            fclose(f);
+            if (nread != (size_t)fsize) {
+                free(img_data);
+                send_error(c, 500, "read error");
+                return;
+            }
+            // Send HTTP response with binary image data
+            mg_printf(c,
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: image/jpeg\r\n"
+                "Content-Length: %lu\r\n"
+                "Access-Control-Allow-Origin: *\r\n"
+                "Cache-Control: public, max-age=86400\r\n"
+                "\r\n",
+                (unsigned long)nread);
+            mg_send(c, img_data, nread);
+            free(img_data);
+            return;
+        }
+
+        // POST /api/train/analyze
+        if (mg_match(hm->method, mg_str("POST"), NULL)
+                && mg_match(hm->uri, mg_str("/api/train/analyze"), NULL)) {
+            cJSON *body = parse_body(hm);
+            if (!body) {
+                send_error(c, 400, "invalid json");
+                return;
+            }
+            cJSON *sess = cJSON_GetObjectItem(body, "session");
+            cJSON *idx_item = cJSON_GetObjectItem(body, "index");
+            if (!cJSON_IsString(sess) || !cJSON_IsNumber(idx_item)) {
+                cJSON_Delete(body);
+                send_error(c, 400, "missing session or index");
+                return;
+            }
+            char *label = sc_ai_agent_analyze_capture(
+                agent, sess->valuestring, idx_item->valueint);
+            cJSON_Delete(body);
+            cJSON *resp = cJSON_CreateObject();
+            cJSON_AddStringToObject(resp, "label", label ? label : "");
+            free(label);
+            send_json_response(c, resp);
+            return;
+        }
+
+        // GET /api/train/tree
+        if (mg_match(hm->method, mg_str("GET"), NULL)
+                && mg_match(hm->uri, mg_str("/api/train/tree"), NULL)) {
+            char *tree = sc_ai_agent_get_train_tree(agent);
+            if (tree) {
+                mg_http_reply(c, 200,
+                    "Content-Type: application/json\r\n"
+                    "Access-Control-Allow-Origin: *\r\n",
+                    "%s", tree);
+                free(tree);
+            } else {
+                mg_http_reply(c, 200,
+                    "Content-Type: application/json\r\n"
+                    "Access-Control-Allow-Origin: *\r\n",
+                    "{\"states\":[]}");
+            }
+            return;
+        }
+
+        // POST /api/train/tree
+        if (mg_match(hm->method, mg_str("POST"), NULL)
+                && mg_match(hm->uri, mg_str("/api/train/tree"), NULL)) {
+            // Store the raw body as tree JSON
+            if (hm->body.len == 0) {
+                send_error(c, 400, "empty body");
+                return;
+            }
+            char *json_str = malloc(hm->body.len + 1);
+            if (!json_str) {
+                send_error(c, 500, "out of memory");
+                return;
+            }
+            memcpy(json_str, hm->body.buf, hm->body.len);
+            json_str[hm->body.len] = '\0';
+            sc_ai_agent_set_train_tree(agent, json_str);
+            free(json_str);
             send_ok(c);
             return;
         }

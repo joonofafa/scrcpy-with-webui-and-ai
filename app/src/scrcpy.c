@@ -913,6 +913,7 @@ aoa_complete:
             .api_key = options->ai_api_key,
             .model = options->ai_model,
             .base_url = options->ai_base_url,
+            .vision_model = options->ai_vision_model,
         };
 
         if (!sc_ai_agent_init(&s->ai_agent, &ai_params)) {
