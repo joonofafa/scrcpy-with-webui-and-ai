@@ -25,6 +25,15 @@ class Config:
     # Recording
     record_dir: str = ""  # set in post_init
 
+    # Memory DB
+    db_dir: str = ""  # set in post_init
+
+    # Hybrid decision
+    phash_threshold: int = 8        # pHash hamming distance threshold (< means same screen)
+    memory_sim_threshold: float = 0.95  # ChromaDB similarity threshold for memory match
+    history_window_size: int = 15   # ActionHistoryWindow deque size
+    history_penalty_weight: float = 0.5  # penalty multiplier for recently-used actions
+
     # Guardrails
     max_same_screen: int = 3
     max_repeat_touch: int = 4
@@ -38,6 +47,8 @@ class Config:
         import os
         if not self.record_dir:
             self.record_dir = os.path.expanduser("~/scrcpy_records")
+        if not self.db_dir:
+            self.db_dir = os.path.expanduser("~/scrcpy_db")
 
 
 config = Config()

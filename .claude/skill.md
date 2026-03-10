@@ -46,6 +46,7 @@
 | FastAPI | 웹 프레임워크 (REST API, 정적 파일 서빙) |
 | uvicorn | ASGI 서버 |
 | httpx | C 백엔드 통신 HTTP 클라이언트 |
+| websockets | WebSocket 프록시 (C 백엔드 WS 중계) |
 
 ### 추가 (브라우저)
 
@@ -100,15 +101,18 @@
 ## 디렉토리 구조 (커스텀 부분)
 
 ```
-app/src/ai/
+app/src/web/
 ├── web_server.c/h         # Mongoose HTTP/WebSocket 서버 (/internal/* + /ws/*)
 ├── web_video_sink.c/h     # sc_packet_sink → 링버퍼 → Annex-B + 키프레임 캐시
 ├── web_frame_sink.c/h     # 디코딩된 프레임 → 버퍼 (스크린샷용)
 ├── web_tools.c/h          # 터치/키/스와이프 주입
 └── screenshot.c/h         # AVFrame → JPEG 인코딩
 
+app/data/
+└── clip_server.py         # CLIP 임베딩 서버 (독립 실행)
+
 app/python/scrcpy_ai/
-├── main.py                # FastAPI 앱 진입점
+├── main.py                # FastAPI 앱 진입점 + WebSocket 프록시
 ├── config.py              # 설정
 ├── static/index.html      # 웹 UI (jmuxer 2.1.0)
 ├── web/routes.py          # API 라우트

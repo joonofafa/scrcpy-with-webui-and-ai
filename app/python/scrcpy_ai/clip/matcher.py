@@ -1,8 +1,9 @@
-"""CLIP-based screen matching and auto-play."""
+"""CLIP-based screen matching, pHash change detection, and hybrid auto-play."""
 
 import io
 import logging
 import time
+from typing import Optional
 
 import numpy as np
 
@@ -10,6 +11,9 @@ from scrcpy_ai.config import config
 from scrcpy_ai.device import client as device
 
 logger = logging.getLogger(__name__)
+
+# Lazy-loaded pHash
+_phash_available = None
 
 # Lazy-loaded CLIP model
 _clip_model = None
@@ -55,6 +59,100 @@ def embed_image_bytes(jpeg_bytes: bytes) -> np.ndarray | None:
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
+
+
+def compute_phash(jpeg_bytes: bytes) -> Optional[str]:
+    """Compute perceptual hash of an image. Returns hex string or None."""
+    global _phash_available
+    if _phash_available is False:
+        return None
+    try:
+        import imagehash
+        from PIL import Image
+        _phash_available = True
+        img = Image.open(io.BytesIO(jpeg_bytes))
+        h = imagehash.phash(img)
+        return str(h)
+    except ImportError:
+        _phash_available = False
+        logger.warning("imagehash not available, pHash disabled")
+        return None
+    except Exception as e:
+        logger.error("pHash failed: %s", e)
+        return None
+
+
+def phash_distance(hash1: str, hash2: str) -> int:
+    """Hamming distance between two hex pHash strings."""
+    try:
+        import imagehash
+        h1 = imagehash.hex_to_hash(hash1)
+        h2 = imagehash.hex_to_hash(hash2)
+        return h1 - h2
+    except Exception:
+        return 999
+
+
+def get_best_action(
+    current_embedding: np.ndarray,
+    current_state_id: str,
+    action_history,
+) -> Optional[dict]:
+    """Query memory DB and select best action with history-aware scoring.
+
+    Returns dict with {action_type, x, y, x2, y2, state_id, similarity, score}
+    or None if no suitable action found.
+    """
+    from scrcpy_ai.db.memory_manager import memory
+
+    experiences = memory.query_experience(current_embedding, top_k=5)
+    if not experiences:
+        return None
+
+    # Filter by similarity threshold
+    candidates = []
+    for exp in experiences:
+        if exp["similarity"] < config.memory_sim_threshold:
+            continue
+        for action in exp["actions"]:
+            # Score = similarity - history penalty
+            penalty = action_history.penalty(
+                current_state_id,
+                action["action_type"],
+                action["x"], action["y"],
+            )
+            # Boost actions with higher success rate
+            exec_count = action["execution_count"]
+            succ_rate = action["success_count"] / max(exec_count, 1)
+            score = exp["similarity"] + (succ_rate * 0.1) - penalty
+
+            candidates.append({
+                "action_type": action["action_type"],
+                "x": action["x"],
+                "y": action["y"],
+                "x2": action.get("x2"),
+                "y2": action.get("y2"),
+                "extra_json": action.get("extra_json"),
+                "state_id": exp["state_id"],
+                "similarity": exp["similarity"],
+                "score": score,
+                "execution_count": exec_count,
+            })
+
+    if not candidates:
+        return None
+
+    # Sort by score descending
+    candidates.sort(key=lambda c: c["score"], reverse=True)
+
+    # Return best candidate (caller decides whether to use or fallback to VLM)
+    best = candidates[0]
+    logger.info(
+        "Best action: %s (%d,%d) score=%.3f sim=%.3f exec=%d",
+        best["action_type"], best["x"], best["y"],
+        best["score"], best["similarity"], best["execution_count"],
+    )
+    return best
 
 
 def clip_auto_cycle(agent):

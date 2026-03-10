@@ -6,7 +6,7 @@ scrcpy(Screen Copy) 3.3.4 기반 포크. 원본 기능(Android 미러링/제어)
 
 **역할 분리 원칙**: C는 디바이스 I/O만 (비디오 스트리밍 + 터치/키 주입 + 스크린샷), AI 로직은 전부 Python.
 
-## C 백엔드: Web Route Server (app/src/ai/, 포트 18080)
+## C 백엔드: Web Route Server (app/src/web/, 포트 18080)
 
 `--webroute <port>` 옵션으로 활성화. 디바이스 화면/제어를 HTTP/WebSocket API로 노출.
 
@@ -32,7 +32,7 @@ CLI 옵션: `--webroute <port>`
 
 FastAPI 기반. AI 에이전트 + 웹 UI + C 백엔드 /internal/* API 래핑.
 
-- **main.py** — FastAPI 앱 진입점
+- **main.py** — FastAPI 앱 진입점 + WebSocket 프록시 (C 백엔드 WS 중계, Apache 없이 직접 접근 가능)
 - **web/routes.py** — API 라우트 (AI 에이전트, 게임 규칙, 학습, CLIP 등)
 - **static/index.html** — 웹 UI (jmuxer 2.1.0 H.264→MSE 디코딩)
 - **agent/agent.py** — AI 에이전트 (VLM 화면분석, LLM 판단, tool 실행)
@@ -44,9 +44,15 @@ FastAPI 기반. AI 에이전트 + 웹 UI + C 백엔드 /internal/* API 래핑.
 ## 배포 아키텍처
 
 ```
+[방법 1] Apache 리버스 프록시
 브라우저 → Apache (443/SSL)
   ├─ /ws/video, /ws/control → C 백엔드 (ws://127.0.0.1:18080)
   └─ / (나머지) → Python FastAPI (http://127.0.0.1:8080)
+
+[방법 2] Python 직접 접근 (Apache 없이)
+브라우저 → Python FastAPI (8080)
+  ├─ /ws/video, /ws/control → WebSocket 프록시 → C 백엔드 (ws://127.0.0.1:18080)
+  └─ / (나머지) → Python 직접 처리
 ```
 
 - systemd 서비스: `/etc/systemd/system/scrcpy-web.service`

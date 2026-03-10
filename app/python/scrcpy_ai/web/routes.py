@@ -217,6 +217,28 @@ async def clip_clear():
     return {"ok": True}
 
 
+# ── Hybrid Mode ────────────────────────────────────────────────────
+@router.post("/api/hybrid/toggle")
+async def hybrid_toggle(request: Request):
+    body = await request.json()
+    agent.hybrid_enabled = body.get("enabled", True)
+    return {"ok": True, "hybrid_enabled": agent.hybrid_enabled}
+
+
+@router.get("/api/memory/stats")
+async def memory_stats():
+    from scrcpy_ai.db.memory_manager import memory
+    return memory.stats()
+
+
+@router.post("/api/memory/clear-history")
+async def memory_clear_history():
+    agent.action_history.clear()
+    agent._prev_phash = None
+    agent._same_screen_count = 0
+    return {"ok": True}
+
+
 # ── Train Tree ──────────────────────────────────────────────────────
 @router.get("/api/train/tree")
 async def get_tree():
