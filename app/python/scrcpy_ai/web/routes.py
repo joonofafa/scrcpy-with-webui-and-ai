@@ -322,6 +322,37 @@ async def memory_clear_history():
     return {"ok": True}
 
 
+# ── Train Labels ────────────────────────────────────────────────────
+@router.get("/api/train/labels")
+async def train_labels(session: str):
+    import json
+    labels_path = os.path.join(config.record_dir, session, "labels.json")
+    if not os.path.exists(labels_path):
+        return {"ok": True}
+    try:
+        with open(labels_path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {"ok": True}
+
+
+# ── Train Save (Confirm) ────────────────────────────────────────────
+@router.post("/api/train/save")
+async def train_save(request: Request):
+    body = await request.json()
+    session = body.get("session")
+    labels = body.get("labels", {})
+    if not session:
+        raise HTTPException(400, "missing session")
+
+    # Save labels to labels.json in session directory
+    import json
+    labels_path = os.path.join(config.record_dir, session, "labels.json")
+    with open(labels_path, "w") as f:
+        json.dump(labels, f)
+    return {"ok": True}
+
+
 # ── Train Tree ──────────────────────────────────────────────────────
 @router.get("/api/train/tree")
 async def get_tree():

@@ -525,6 +525,7 @@ class AIAgent:
                 "screen_width": self.screen_width,
                 "screen_height": self.screen_height,
                 "messages": messages_for_ui,
+                "activity_log": list(self.activity_log),
                 "auto_running": self.auto_running,
                 "recording": self.recording,
                 "record_count": self.record_count,

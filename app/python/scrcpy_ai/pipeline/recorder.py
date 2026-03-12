@@ -42,24 +42,26 @@ def get_session(name: str) -> list[dict]:
         return []
 
     captures = []
-    idx = 1
-    while True:
-        jpg = os.path.join(path, f"{idx:04d}.jpg")
+    for fname in os.listdir(path):
+        if not fname.endswith(".jpg"):
+            continue
+        try:
+            idx = int(fname.replace(".jpg", ""))
+        except ValueError:
+            continue
         txt = os.path.join(path, f"{idx:04d}.txt")
-        if not os.path.exists(jpg):
-            break
-        touch = {"x": 0, "y": 0}
+        x, y = 0, 0
         if os.path.exists(txt):
             try:
                 data = open(txt).read().strip()
                 parts = data.split(",")
                 if len(parts) >= 2:
-                    touch = {"x": int(parts[0]), "y": int(parts[1])}
+                    x, y = int(parts[0]), int(parts[1])
             except (ValueError, IndexError):
                 pass
-        captures.append({"index": idx, "touch": touch})
-        idx += 1
+        captures.append({"index": idx, "x": x, "y": y})
 
+    captures.sort(key=lambda c: c["index"])
     return captures
 
 

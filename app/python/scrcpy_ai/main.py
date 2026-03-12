@@ -129,9 +129,21 @@ async def ws_control(ws: WebSocket):
 from scrcpy_ai.web.routes import router  # noqa: E402
 app.include_router(router)
 
-# Serve static files (web UI) — must be last (catch-all mount)
+# Serve static files with no-cache on HTML to prevent stale UI after updates
 static_dir = os.path.join(os.path.dirname(__file__), "static")
-app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+_no_cache_headers = {"Cache-Control": "no-cache, must-revalidate", "Pragma": "no-cache"}
+
+
+class NoCacheStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if path.endswith(".html") or path == "" or path == ".":
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+        return response
+
+
+app.mount("/", NoCacheStaticFiles(directory=static_dir, html=True), name="static")
 
 
 def main():
