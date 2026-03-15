@@ -167,6 +167,67 @@ handle_ws_control_msg(struct sc_web_server *server, struct mg_ws_message *wm) {
         if (!sc_controller_push_msg(server->controller, &msg_up)) {
             LOGW("Could not push web key up event");
         }
+    } else if (strcmp(type, "keyevent") == 0) {
+        // Browser keyboard event: {type:"keyevent", action:"down"|"up",
+        //                          keycode: <android_keycode>, metastate: <int>}
+        cJSON *action_item = cJSON_GetObjectItem(json, "action");
+        cJSON *keycode_item = cJSON_GetObjectItem(json, "keycode");
+        if (!action_item || !cJSON_IsString(action_item)
+                || !keycode_item || !cJSON_IsNumber(keycode_item)) {
+            cJSON_Delete(json);
+            return;
+        }
+
+        const char *action_str = action_item->valuestring;
+        enum android_keyevent_action action;
+        if (strcmp(action_str, "down") == 0) {
+            action = AKEY_EVENT_ACTION_DOWN;
+        } else if (strcmp(action_str, "up") == 0) {
+            action = AKEY_EVENT_ACTION_UP;
+        } else {
+            cJSON_Delete(json);
+            return;
+        }
+
+        cJSON *meta_item = cJSON_GetObjectItem(json, "metastate");
+        enum android_metastate metastate = (meta_item && cJSON_IsNumber(meta_item))
+            ? (enum android_metastate) meta_item->valueint
+            : AMETA_NONE;
+
+        struct sc_control_msg msg;
+        msg.type = SC_CONTROL_MSG_TYPE_INJECT_KEYCODE;
+        msg.inject_keycode.action = action;
+        msg.inject_keycode.keycode = (enum android_keycode) keycode_item->valueint;
+        msg.inject_keycode.repeat = 0;
+        msg.inject_keycode.metastate = metastate;
+
+        LOGD("Web keyevent: %s keycode=%d meta=%d", action_str,
+             keycode_item->valueint, (int) metastate);
+        if (!sc_controller_push_msg(server->controller, &msg)) {
+            LOGW("Could not push web keyevent");
+        }
+    } else if (strcmp(type, "text") == 0) {
+        // Text injection: {type:"text", text:"hello"}
+        cJSON *text_item = cJSON_GetObjectItem(json, "text");
+        if (!text_item || !cJSON_IsString(text_item)
+                || strlen(text_item->valuestring) == 0) {
+            cJSON_Delete(json);
+            return;
+        }
+
+        struct sc_control_msg msg;
+        msg.type = SC_CONTROL_MSG_TYPE_INJECT_TEXT;
+        msg.inject_text.text = strdup(text_item->valuestring);
+        if (!msg.inject_text.text) {
+            cJSON_Delete(json);
+            return;
+        }
+
+        LOGD("Web text: \"%s\"", text_item->valuestring);
+        if (!sc_controller_push_msg(server->controller, &msg)) {
+            free(msg.inject_text.text);
+            LOGW("Could not push web text event");
+        }
     }
 
     cJSON_Delete(json);
