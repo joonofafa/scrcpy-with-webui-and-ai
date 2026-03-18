@@ -9,59 +9,157 @@ _scrcpy + AI Vision Agent + Web Remote Control_
 
 This fork extends scrcpy with:
 
-- **AI Vision Agent** — LLM이 Android 화면을 분석하고 자율적으로 터치/키 조작
-- **Web Remote Control** — 웹 브라우저에서 실시간 화면 스트리밍 + 원격 터치 제어
-- **CLIP Matching** — 화면 임베딩 기반 유사도 매칭으로 게임/앱 자동화
-- **Record/Train/Play** — 조작 시퀀스 녹화 → 학습 → 자동 재생 파이프라인
+- **AI Vision Agent** — LLM analyzes Android screen and autonomously performs touch/key actions
+- **Web Remote Control** — Real-time video streaming + remote touch control from a web browser
+- **CLIP Matching** — Screen embedding-based similarity matching for game/app automation
+- **Record/Train/Play** — Gesture sequence recording → training → automatic playback pipeline
+
+---
 
 ## Fork Features
 
 ### AI Vision Agent
 
-OpenRouter API를 통해 VLM(Vision Language Model)이 Android 화면을 보고 판단·조작합니다.
+Uses OpenRouter API to let a VLM (Vision Language Model) see and control the Android screen.
 
-- Function Calling 기반 도구 실행 (터치, 스와이프, 키 입력, 텍스트 입력, 대기)
-- Tree-based 자동화: 조건 분기로 복잡한 시나리오 구성
-- CLIP 임베딩 매칭으로 화면 상태 인식
+- **Hybrid Decision Mode** — Memory DB (ChromaDB) lookup first, VLM fallback when no match
+  - Perceptual hashing (pHash) for screen state detection
+  - Semantic action matching with configurable similarity threshold
+  - Penalty system to avoid repeating recent actions
+- **Function Calling Tools** — `click`, `long_press`, `swipe`, `key_press`, `input_text`, `screenshot`
+- **Decision Tree Automation** — Conditional branching for complex multi-step scenarios
+- **CLIP Auto-Play** — ViT-B-32 visual embedding matching for pattern-based automation
+- **Safety Guardrails** — Max same-screen repetitions, max repeated touches, runtime limit (default 120 min), iteration limit (50 per prompt)
+- **Screenshot Processing** — Auto-downscale to max 1280px for consistent VLM coordinate mapping
+
+**Supported Models (via OpenRouter):**
+- LLM: `openai/gpt-4o-mini` (default)
+- Vision: `google/gemini-2.5-flash-lite` (default)
 
 ### Web Remote Control
 
-헤드리스 서버에서 실행하고 웹 브라우저로 원격 제어합니다.
+Run scrcpy on a headless server and control the device remotely from a web browser.
 
 ```
-브라우저 (HTTPS) → Apache Reverse Proxy
-  ├─ /ws/video, /ws/control → C 백엔드 (Mongoose, 포트 18080)
-  └─ / (나머지)             → Python FastAPI (포트 8080)
+Browser (HTTPS) → Apache Reverse Proxy
+  ├─ /ws/video, /ws/control → C backend (Mongoose, port 18080)
+  └─ / (everything else)    → Python FastAPI (port 8080)
 ```
 
-- H.264 실시간 스트리밍 (jmuxer.js → MSE 브라우저 HW 디코딩)
-- 키프레임 캐싱으로 빠른 초기 로딩
-- SPS/PPS 변경 시 자동 캐시 무효화 (앱 전환 안전성)
-- jmuxer 에러 자동 복구 (buffer error 시 재초기화)
-- 터치/키 WebSocket 원격 입력
+**Video Streaming:**
+- H.264/H.265 real-time streaming via WebSocket (jmuxer.js → MSE browser HW decoding)
+- Keyframe caching for instant playback on client connect
+- SPS/PPS cache invalidation on codec config change (safe app switching)
+- Backpressure handling — skips slow clients (>512KB send buffer) to prevent memory bloat
+- Automatic jmuxer error recovery (reinitializes on buffer errors)
 
-### 실행 예시
+**Remote Input:**
+- Touch events (down/move/up) via WebSocket
+- Key shortcuts: Back, Home, App Switch, Volume Up/Down, Power
+- Keycode injection with metastate support
+- Text input
+
+**Python Backend (FastAPI):**
+- Session-based OTP authentication with 15-minute expiration
+- Agent control API — start/stop autonomous agent, submit prompts
+- Game rules configuration for autonomous mode
+- Recording pipeline — capture frames + touch coordinates per session
+- Training API — CLIP embedding generation, label management, decision tree editor
+- Memory management — ChromaDB stats, action history, heuristics clearing
+- WebSocket proxy to C backend
+
+### C Backend API
+
+The C backend (Mongoose HTTP/WebSocket server) exposes internal endpoints:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/internal/screenshot` | GET | Capture current frame as JPEG (with dimension headers) |
+| `/internal/info` | GET | Get current screen/frame dimensions (JSON) |
+| `/internal/click` | POST | Inject tap at coordinates (`x`, `y`, optional `w`, `h`) |
+| `/internal/long_press` | POST | Long press (`x`, `y`, optional `duration_ms`) |
+| `/internal/swipe` | POST | Swipe gesture (`x1`, `y1`, `x2`, `y2`, optional `duration_ms`) |
+| `/internal/key` | POST | Inject Android keycode (`keycode`, optional `action`) |
+| `/internal/text` | POST | Type text string (`text`) |
+| `/ws/video` | WS | Video stream — initial JSON metadata, then binary NAL units |
+| `/ws/control` | WS | Touch/key control — JSON messages |
+
+### Record / Train / Play Pipeline
+
+1. **Record** — Capture frames and touch coordinates during manual interaction
+2. **Train** — Generate CLIP embeddings for recorded frames, label actions, build decision trees
+3. **Play** — Load embeddings and let the CLIP matcher or decision tree automate playback
+
+Session data is stored in `~/.scrcpy_ai/records/`.
+
+---
+
+## Quick Start
+
+### Headless Web Remote Mode
 
 ```bash
-# 헤드리스 웹 라우트 서버 모드
+# Start C backend with web route enabled
 scrcpy --no-window --no-audio --webroute 18080 \
   --video-bit-rate=4M --video-codec-options=i-frame-interval=2 \
   --max-size=1280 -s <device-serial>
+
+# Start Python FastAPI backend (in a separate terminal)
+cd app/python
+python -m scrcpy_ai.main --port 8080 --scrcpy-port 18080
 ```
 
-### 추가 CLI 옵션
+### AI Agent Mode
 
-| 옵션 | 설명 |
-|------|------|
-| `--webroute <port>` | 웹 라우트 API 서버 활성화 (비디오 스트림 + 디바이스 제어) |
+```bash
+# Configure via the web UI or API
+curl -X POST http://localhost:8080/api/config \
+  -H 'Content-Type: application/json' \
+  -d '{"api_key": "your-openrouter-key", "model": "openai/gpt-4o-mini", "vision_model": "google/gemini-2.5-flash-lite"}'
 
-### 추가 빌드 의존성
+# Start autonomous agent
+curl -X POST http://localhost:8080/api/auto/start
 
-| 라이브러리 | 용도 |
-|-----------|------|
-| libswscale | 스크린샷 이미지 스케일링 |
+# Or submit a one-shot prompt
+curl -X POST http://localhost:8080/api/prompt \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt": "Open Settings and turn on Wi-Fi"}'
+```
 
-빌드 시 `meson_options.txt`에서 `webroute=true` 설정 필요.
+---
+
+## Fork CLI Options
+
+| Option | Description |
+|--------|-------------|
+| `--webroute <port>` | Enable web route API server (video streaming + device control) |
+
+## Additional Build Dependencies
+
+| Library | Purpose |
+|---------|---------|
+| libswscale | Screenshot image scaling (required when `webroute=true`) |
+
+Build with `webroute` enabled:
+
+```bash
+meson setup build -Dwebroute=true
+ninja -C build
+```
+
+## Python Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| `fastapi` | Web framework for Python backend |
+| `uvicorn` | ASGI server |
+| `openai` | OpenRouter API client |
+| `open-clip-torch` | CLIP visual embeddings |
+| `chromadb` | Vector DB for action memory |
+| `httpx` | HTTP client to C backend |
+| `Pillow` | Image processing |
+| `imagehash` | Perceptual hashing (pHash) |
+| `pyotp` / `qrcode` | OTP authentication |
 
 ---
 
