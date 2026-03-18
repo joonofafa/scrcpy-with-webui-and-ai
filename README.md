@@ -14,6 +14,8 @@ This fork extends scrcpy with:
 - **CLIP Matching** — Screen embedding-based similarity matching for game/app automation
 - **Record/Train/Play** — Gesture sequence recording → training → automatic playback pipeline
 
+![screenshot-webui](assets/screenshot-webui.jpg)
+
 ---
 
 ## Fork Features
