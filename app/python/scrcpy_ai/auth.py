@@ -1,6 +1,7 @@
 """TOTP authentication for external access."""
 
 import hashlib
+import json
 import logging
 import os
 import secrets
@@ -15,7 +16,36 @@ logger = logging.getLogger(__name__)
 # Session store: {token: expiry_timestamp}
 _sessions: dict[str, float] = {}
 
-SESSION_TTL = 15 * 60  # 15 minutes
+SESSION_TTL = 2 * 60 * 60  # 2 hours (must match cookie max_age in web/routes.py)
+
+
+def _sessions_path() -> str:
+    return os.path.join(config.db_dir, "sessions.json")
+
+
+def _save_sessions() -> None:
+    """Persist sessions so a scrcpy-ai restart doesn't force everyone to re-login."""
+    try:
+        os.makedirs(config.db_dir, exist_ok=True)
+        path = _sessions_path()
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(_sessions, f)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except OSError:
+        logger.warning("could not persist sessions", exc_info=True)
+
+
+def _load_sessions() -> None:
+    """Restore non-expired sessions from disk at startup."""
+    try:
+        with open(_sessions_path()) as f:
+            data = json.load(f)
+        now = time.time()
+        _sessions.update({t: e for t, e in data.items() if isinstance(e, (int, float)) and e > now})
+    except (FileNotFoundError, ValueError, OSError):
+        pass
 
 
 def _secret_path() -> str:
@@ -58,6 +88,7 @@ def create_session() -> str:
     _cleanup_expired()
     token = secrets.token_urlsafe(32)
     _sessions[token] = time.time() + SESSION_TTL
+    _save_sessions()
     return token
 
 
@@ -82,6 +113,12 @@ def _cleanup_expired():
     expired = [k for k, v in _sessions.items() if now > v]
     for k in expired:
         _sessions.pop(k, None)
+    if expired:
+        _save_sessions()
+
+
+# Restore sessions saved before the last restart (module import time).
+_load_sessions()
 
 
 def is_internal_request(client_host: str, forwarded_for: str | None,

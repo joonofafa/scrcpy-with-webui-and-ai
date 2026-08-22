@@ -64,15 +64,11 @@ async def startup():
     logger.info("scrcpy backend: %s", config.scrcpy_url)
 
 
-@app.on_event("shutdown")
-async def shutdown():
-    from scrcpy_ai.device import client
-    client.close()
-
-
-# WebSocket proxy: relay /ws/video and /ws/control to C backend
-async def _ws_proxy(client_ws: WebSocket, path: str):
-    backend_url = f"ws://{config.scrcpy_host}:{config.scrcpy_port}{path}"
+# WebSocket proxy: relay /ws*/video and /ws*/control to a C backend instance.
+# Device 1 (scrcpy-web) is on config.scrcpy_port; device 2 (scrcpy-web2) on +1.
+async def _ws_proxy(client_ws: WebSocket, path: str, port: int = None):
+    backend_port = port if port is not None else config.scrcpy_port
+    backend_url = f"ws://{config.scrcpy_host}:{backend_port}{path}"
     await client_ws.accept()
     try:
         async with websockets.connect(backend_url) as backend_ws:
@@ -115,14 +111,65 @@ async def _ws_proxy(client_ws: WebSocket, path: str):
             pass
 
 
+# Starlette's BaseHTTPMiddleware (AuthMiddleware) only runs for scope=="http",
+# so WebSocket routes bypass it. Each WS handler must enforce auth itself, reusing
+# the exact same decision as the HTTP middleware.
+def _ws_authorized(ws: WebSocket) -> bool:
+    client_host = ws.client.host if ws.client else "127.0.0.1"
+    if is_internal_request(client_host, ws.headers.get("x-forwarded-for"),
+                           ws.headers.get("host")):
+        return True
+    return validate_session(ws.cookies.get("session"))
+
+
 @app.websocket("/ws/video")
 async def ws_video(ws: WebSocket):
+    if not _ws_authorized(ws):
+        await ws.close(code=1008)
+        return
     await _ws_proxy(ws, "/ws/video")
 
 
 @app.websocket("/ws/control")
 async def ws_control(ws: WebSocket):
+    if not _ws_authorized(ws):
+        await ws.close(code=1008)
+        return
     await _ws_proxy(ws, "/ws/control")
+
+
+# Device 2 (Galaxy Note20) — scrcpy-web2 on port 18081
+@app.websocket("/ws2/video")
+async def ws2_video(ws: WebSocket):
+    if not _ws_authorized(ws):
+        await ws.close(code=1008)
+        return
+    await _ws_proxy(ws, "/ws/video", port=config.scrcpy_port + 1)
+
+
+@app.websocket("/ws2/control")
+async def ws2_control(ws: WebSocket):
+    if not _ws_authorized(ws):
+        await ws.close(code=1008)
+        return
+    await _ws_proxy(ws, "/ws/control", port=config.scrcpy_port + 1)
+
+
+# Device 3 (redroid emulator) — scrcpy-web3 on port 18082
+@app.websocket("/ws3/video")
+async def ws3_video(ws: WebSocket):
+    if not _ws_authorized(ws):
+        await ws.close(code=1008)
+        return
+    await _ws_proxy(ws, "/ws/video", port=config.scrcpy_port + 2)
+
+
+@app.websocket("/ws3/control")
+async def ws3_control(ws: WebSocket):
+    if not _ws_authorized(ws):
+        await ws.close(code=1008)
+        return
+    await _ws_proxy(ws, "/ws/control", port=config.scrcpy_port + 2)
 
 
 # Register API routes
@@ -147,23 +194,14 @@ app.mount("/", NoCacheStaticFiles(directory=static_dir, html=True), name="static
 
 
 def main():
-    parser = argparse.ArgumentParser(description="scrcpy AI web server")
+    parser = argparse.ArgumentParser(description="scrcpy web remote server")
     parser.add_argument("--port", type=int, default=8080, help="Web server port")
     parser.add_argument("--scrcpy-port", type=int, default=18080,
                         help="scrcpy internal API port")
-    parser.add_argument("--api-key", type=str, default="", help="OpenRouter API key")
-    parser.add_argument("--model", type=str, default="", help="LLM model")
-    parser.add_argument("--vision-model", type=str, default="", help="VLM model")
     args = parser.parse_args()
 
     config.web_port = args.port
     config.scrcpy_port = args.scrcpy_port
-    if args.api_key:
-        config.api_key = args.api_key
-    if args.model:
-        config.model = args.model
-    if args.vision_model:
-        config.vision_model = args.vision_model
 
     uvicorn.run(app, host="0.0.0.0", port=config.web_port, log_level="info")
 

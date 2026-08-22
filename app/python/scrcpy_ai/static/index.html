@@ -3,85 +3,102 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>scrcpy AI Control</title>
+<title>scrcpy Remote</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 :root {
   --bg-0: #080b14;
   --bg-1: #0f1526;
   --bg-2: #151e33;
-  --card: rgba(17, 25, 44, 0.82);
+  --card: rgba(17, 25, 44, 0.92);
   --line: rgba(120, 148, 215, 0.25);
   --text: #ecf0ff;
   --text-dim: #9aa8cc;
   --accent: #7b8cff;
   --accent-2: #36d5ff;
-  --good: #2fd49c;
-  --warn: #ffc857;
-  --bad: #ff5f7d;
+  --grid-dot: rgba(120, 148, 215, 0.22);
 }
+html, body { height: 100%; }
 body {
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   color: var(--text);
-  background:
-    radial-gradient(1000px 600px at -10% -20%, rgba(54, 213, 255, 0.18), transparent 55%),
-    radial-gradient(900px 500px at 110% 120%, rgba(123, 140, 255, 0.14), transparent 55%),
-    linear-gradient(135deg, var(--bg-0), var(--bg-1) 45%, var(--bg-2));
-  height: 100vh;
-  display: flex;
-  gap: 10px;
-  padding: 10px;
-  margin: 0;
+  overflow: hidden;
 }
 
-/* Left panel: Remote */
-#panel-remote {
-  flex: 7;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  overflow: hidden;
-  background: var(--card);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
-}
-#video-wrapper {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background: radial-gradient(circle at 50% 10%, #0f1628 10%, #02040a 80%);
-  min-height: 0;
-  position: relative;
-  overflow: hidden;
-  border: 3px solid transparent;
-  transition: border-color 0.2s;
-}
-#video-wrapper.recording {
-  border-color: #e94560;
-  box-shadow: inset 0 0 20px rgba(233, 69, 96, 0.15);
-}
-#remote-video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
-#remote-video.rotated { position: absolute; top: 50%; left: 50%; max-width: none; max-height: none; object-fit: contain; }
-#touch-overlay { position: absolute; inset: 0; cursor: default; touch-action: none; }
-#video-loading {
-  position: absolute;
+/* ---- n8n-style dotted grid canvas ---- */
+#canvas {
+  position: fixed;
   inset: 0;
+  background-color: var(--bg-0);
+  background-image:
+    radial-gradient(900px 500px at 0% 0%, rgba(54, 213, 255, 0.10), transparent 55%),
+    radial-gradient(900px 500px at 100% 100%, rgba(123, 140, 255, 0.10), transparent 55%),
+    radial-gradient(circle, var(--grid-dot) 1.4px, transparent 1.6px);
+  background-size: auto, auto, 22px 22px;
+  overflow: hidden;
+  touch-action: none;
+}
+
+/* ---- Empty state (no devices connected) ---- */
+#empty-state {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  gap: 8px; text-align: center; pointer-events: none; user-select: none;
+}
+#empty-state .es-title { font-size: 17px; font-weight: 700; color: var(--text-dim); letter-spacing: 0.02em; }
+#empty-state .es-sub { font-size: 12px; color: rgba(154, 168, 204, 0.6); }
+
+/* ---- Floating phone card ---- */
+.phone-card {
+  position: absolute;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  background: rgba(0, 0, 0, 0.6);
-  color: var(--text-dim);
-  font-size: 14px;
-  z-index: 10;
-  pointer-events: none;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+  user-select: none;
 }
-#video-loading .spinner {
-  width: 44px;
-  height: 44px;
+.phone-card.active { border-color: rgba(54, 213, 255, 0.7); box-shadow: 0 18px 55px rgba(0,0,0,0.55), 0 0 0 2px rgba(54,213,255,0.35); }
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: move;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(135deg, rgba(22, 30, 54, 0.95), rgba(18, 27, 49, 0.95));
+  border-radius: 14px 14px 0 0;
+  touch-action: none;
+}
+.grip { flex-shrink: 0; color: var(--text-dim); letter-spacing: 2px; font-size: 12px; line-height: 1; }
+.card-label { flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--text); }
+.card-status {
+  flex: 1; font-size: 11px; color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-align: right; letter-spacing: 0.02em;
+}
+
+.video-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 9 / 19;
+  background: radial-gradient(circle at 50% 10%, #0f1628 10%, #02040a 80%);
+  overflow: hidden;
+}
+.remote-video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.remote-video.rotated { position: absolute; top: 50%; left: 50%; width: auto; height: auto; object-fit: contain; }
+.touch-overlay { position: absolute; inset: 0; cursor: default; touch-action: none; }
+.video-loading {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  background: rgba(0, 0, 0, 0.6); color: var(--text-dim); font-size: 13px;
+  z-index: 10; pointer-events: none;
+}
+.video-loading .spinner {
+  width: 40px; height: 40px;
   border: 3px solid rgba(123, 140, 255, 0.2);
   border-top: 3px solid var(--accent-2);
   border-radius: 50%;
@@ -91,1584 +108,71 @@ body {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .btn-bar {
-  display: flex;
-  gap: 6px;
-  padding: 10px;
+  display: flex; gap: 6px; padding: 9px;
   background: linear-gradient(180deg, rgba(20, 29, 51, 0.95), rgba(14, 21, 38, 0.95));
   border-top: 1px solid var(--line);
-  flex-wrap: wrap;
-  justify-content: center;
+  border-radius: 0 0 14px 14px;
+  flex-wrap: wrap; justify-content: center;
 }
 .btn-bar button {
-  padding: 7px 12px;
-  font-size: 12px;
+  padding: 7px 11px; font-size: 12px;
   background: linear-gradient(180deg, rgba(123, 140, 255, 0.22), rgba(90, 105, 214, 0.18));
-  color: var(--text);
-  border: 1px solid rgba(123, 140, 255, 0.35);
-  border-radius: 10px;
-  cursor: pointer;
-  font-weight: 600;
+  color: var(--text); border: 1px solid rgba(123, 140, 255, 0.35);
+  border-radius: 10px; cursor: pointer; font-weight: 600;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
-.btn-bar button:hover {
-  border-color: rgba(123, 140, 255, 0.65);
-  box-shadow: 0 0 0 2px rgba(123, 140, 255, 0.18);
-  transform: translateY(-1px);
-}
+.btn-bar button:hover { border-color: rgba(123, 140, 255, 0.65); box-shadow: 0 0 0 2px rgba(123, 140, 255, 0.18); transform: translateY(-1px); }
 .btn-bar button:active { transform: translateY(0); }
+.btn-bar button.kb-on { background: var(--accent); color: #fff; }
 
-#remote-status {
-  padding: 7px 10px;
-  font-size: 11px;
-  color: var(--text-dim);
-  background: rgba(8, 12, 24, 0.88);
-  text-align: center;
-  border-top: 1px solid var(--line);
-  letter-spacing: 0.02em;
+/* ---- Resize handle (bottom-right corner) ---- */
+.resize-handle {
+  position: absolute; right: -3px; bottom: -3px;
+  width: 20px; height: 20px; cursor: nwse-resize; z-index: 20; touch-action: none;
 }
-
-/* Right panel: AI */
-#panel-ai {
-  flex: 3;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  overflow: hidden;
-  background: var(--card);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
-}
-#panel-ai header {
-  background: linear-gradient(135deg, rgba(22, 30, 54, 0.95), rgba(18, 27, 49, 0.95));
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-#panel-ai header h1 {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: 0.01em;
-}
-#panel-ai header .header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-#open-settings-btn {
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border-radius: 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(123, 140, 255, 0.14);
-  border: 1px solid rgba(123, 140, 255, 0.35);
-}
-#open-settings-btn:hover {
-  box-shadow: 0 0 0 2px rgba(123, 140, 255, 0.2);
-}
-#open-settings-btn.disconnected {
-  background: rgba(255, 95, 125, 0.14);
-  border-color: rgba(255, 95, 125, 0.45);
-}
-.settings-icon {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  color: var(--text);
-}
-.ai-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-
-/* Tabs */
-.tab-bar {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--line);
-  background: rgba(11, 16, 31, 0.7);
-}
-.tab-btn {
-  padding: 9px;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.02);
-  color: var(--text-dim);
-  border-radius: 10px;
-  transition: all 0.18s ease;
-}
-.tab-btn:hover {
-  color: var(--text);
-  border-color: rgba(123, 140, 255, 0.3);
-  background: rgba(123, 140, 255, 0.08);
-}
-.tab-btn.active {
-  color: #f4f7ff;
-  border-color: rgba(123, 140, 255, 0.7);
-  background: linear-gradient(145deg, rgba(123, 140, 255, 0.35), rgba(54, 213, 255, 0.18));
-}
-.tab-content { flex: 1; display: none; flex-direction: column; overflow: hidden; padding: 10px; gap: 10px; }
-.tab-content.active { display: flex; }
-
-/* Common */
-button {
-  background: linear-gradient(150deg, #7b8cff, #5e72ff);
-  color: #fff;
-  border: 1px solid rgba(132, 147, 255, 0.65);
-  padding: 8px 14px;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
-}
-button:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 20px rgba(69, 92, 255, 0.35);
-}
-button:disabled {
-  background: rgba(120, 130, 160, 0.25);
-  border-color: rgba(120, 130, 160, 0.25);
-  color: #9ba5bf;
-  cursor: not-allowed;
-  box-shadow: none;
-  transform: none;
-}
-button.secondary {
-  background: rgba(115, 136, 198, 0.18);
-  border-color: rgba(115, 136, 198, 0.45);
-}
-button.secondary:hover { box-shadow: 0 8px 18px rgba(90, 110, 180, 0.25); }
-button.danger {
-  background: linear-gradient(150deg, #ff6f8e, #ff4f74);
-  border-color: rgba(255, 128, 154, 0.65);
-}
-button.success {
-  background: linear-gradient(150deg, #35d39f, #20b784);
-  border-color: rgba(89, 231, 178, 0.6);
-}
-select {
-  background: rgba(10, 17, 33, 0.95);
-  border: 1px solid rgba(123, 140, 255, 0.3);
-  color: var(--text);
-  padding: 7px 9px;
-  border-radius: 9px;
-  font-size: 12px;
-  outline: none;
-}
-
-/* Rules textarea */
-#rules-textarea {
-  width: 100%;
-  flex: 1;
-  min-height: 100px;
-  background: rgba(8, 14, 28, 0.95);
-  border: 1px solid rgba(123, 140, 255, 0.25);
-  color: var(--text);
-  padding: 11px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
-  outline: none;
-  resize: vertical;
-  line-height: 1.65;
-}
-#rules-textarea:focus {
-  border-color: rgba(54, 213, 255, 0.8);
-  box-shadow: 0 0 0 3px rgba(54, 213, 255, 0.16);
-}
-.learn-buttons { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; flex-shrink: 0; }
-#summarize-status { font-size: 11px; color: var(--text-dim); margin-left: 2px; }
-
-/* Auto card */
-.auto-card {
-  background: rgba(8, 13, 26, 0.55);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 14px;
-  text-align: center;
-  flex-shrink: 0;
-}
-.auto-card h3 { margin-bottom: 10px; font-size: 14px; }
-.auto-controls {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-.auto-info {
-  display: flex;
-  gap: 14px;
-  margin-top: 12px;
-  justify-content: center;
-  font-size: 12px;
-  flex-wrap: wrap;
-}
-.auto-info .label { color: var(--text-dim); }
-.auto-info .value { color: var(--good); font-weight: 700; }
-.auto-info .value.stopped { color: var(--bad); }
-
-/* Auto log */
-.auto-log-card {
-  flex: 1;
-  min-height: 0;
-  background: rgba(8, 13, 26, 0.55);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  display: flex;
-  flex-direction: column;
-}
-.auto-log-header {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
-  font-weight: 700;
-  font-size: 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-shrink: 0;
-}
-.auto-log-header button { padding: 4px 9px; font-size: 10px; }
-#auto-log-list, #rec-log-list { flex: 1; overflow-y: auto; padding: 8px 11px; }
-.log-entry {
-  padding: 6px 0;
-  border-bottom: 1px dashed rgba(120, 148, 215, 0.2);
-  font-size: 11px;
-  line-height: 1.55;
-  font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
-}
-.log-entry:last-child { border-bottom: none; }
-.log-ts { color: #7485b0; }
-.log-ai { color: var(--good); }
-.log-ai-text { color: #d4dcf2; }
-.log-tool { color: var(--warn); }
-.log-tool-detail { color: #b8c4e6; }
-
-/* Settings */
-.setting-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.setting-row label { min-width: 70px; font-size: 12px; color: var(--text-dim); }
-.setting-row input {
-  flex: 1;
-  background: rgba(8, 14, 28, 0.95);
-  border: 1px solid rgba(123, 140, 255, 0.26);
-  color: var(--text);
-  padding: 7px 9px;
-  border-radius: 9px;
-  font-size: 12px;
-  outline: none;
-}
-.setting-row input:focus {
-  border-color: rgba(54, 213, 255, 0.8);
-  box-shadow: 0 0 0 3px rgba(54, 213, 255, 0.14);
-}
-
-.settings-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(2, 6, 16, 0.72);
-  backdrop-filter: blur(4px);
-  z-index: 50;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 18px;
-}
-.settings-modal-backdrop.show { display: flex; }
-.settings-modal {
-  width: min(520px, 96vw);
-  background: rgba(15, 22, 40, 0.95);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
-  overflow: hidden;
-}
-.settings-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--line);
-}
-.settings-modal-title {
-  font-size: 14px;
-  font-weight: 700;
-}
-.settings-modal-body { padding: 12px 14px 8px; }
-.settings-modal-actions {
-  padding: 0 14px 14px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+.resize-handle::after {
+  content: ''; position: absolute; right: 4px; bottom: 4px;
+  width: 11px; height: 11px;
+  border-right: 2px solid var(--accent-2); border-bottom: 2px solid var(--accent-2);
+  border-radius: 0 0 4px 0; opacity: 0.85;
 }
 
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(123, 140, 255, 0.65), rgba(54, 213, 255, 0.55));
-  border-radius: 999px;
-}
-
-@media (max-width: 1200px) {
-  body { gap: 8px; padding: 8px; }
-}
-@media (max-width: 960px) {
-  body { flex-direction: column; height: auto; min-height: 100vh; }
-  #panel-remote, #panel-ai { min-height: 360px; }
-}
+::-webkit-scrollbar-thumb { background: linear-gradient(180deg, rgba(123, 140, 255, 0.65), rgba(54, 213, 255, 0.55)); border-radius: 999px; }
 </style>
 </head>
 <body>
 
-<!-- Left Panel: Remote -->
-<div id="panel-remote">
-  <div id="video-wrapper">
-    <video id="remote-video" autoplay muted playsinline></video>
-    <canvas id="touch-overlay"></canvas>
-    <div id="video-loading">
-      <div class="spinner"></div>
-      <div>Loading video stream...</div>
-    </div>
-  </div>
-  <div class="btn-bar">
-    <button onclick="sendKey('back')">Back</button>
-    <button onclick="sendKey('home')">Home</button>
-    <button onclick="sendKey('app_switch')">Recents</button>
-    <button onclick="toggleVideoRotation(event)" title="Click: rotate 90deg, Shift+Click: auto">Rotate</button>
-    <button onclick="sendKey('volume_up')">Vol+</button>
-    <button onclick="sendKey('volume_down')">Vol-</button>
-    <button onclick="sendKey('power')">Power</button>
-    <button id="kb-toggle-btn" onclick="toggleKeyboard()" title="Toggle keyboard input to device">KB: OFF</button>
-  </div>
-  <div id="remote-status">Not connected</div>
-</div>
-
-<!-- Right Panel: AI -->
-<div id="panel-ai">
-  <header>
-    <h1>SCRCPY AI CONTROLLER</h1>
-    <div class="header-actions">
-      <button id="open-settings-btn" title="Settings" aria-label="Open settings" onclick="openSettingsModal()">
-        <svg class="settings-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z"></path>
-          <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 1 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 1 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a2 2 0 1 1 4 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6h.2a2 2 0 1 1 0 4h-.2a1 1 0 0 0-.9.6z"></path>
-        </svg>
-      </button>
-    </div>
-  </header>
-  <div class="ai-container">
-    <!-- Tab Bar -->
-    <div class="tab-bar">
-      <button class="tab-btn active" onclick="switchTab('record')">Record</button>
-      <button class="tab-btn" onclick="switchTab('train')">Train & Play</button>
-    </div>
-
-    <!-- Record Tab -->
-    <div class="tab-content active" id="tab-record">
-      <div class="auto-card">
-        <h3>Game Recording</h3>
-        <div class="auto-controls">
-          <button id="rec-start-btn" class="success" onclick="startRecording()">Start Recording</button>
-          <button id="rec-stop-btn" class="danger" onclick="stopRecording()" disabled>Stop</button>
-        </div>
-        <div class="auto-info">
-          <span><span class="label">Status: </span><span class="value stopped" id="rec-status-text">Stopped</span></span>
-          <span><span class="label">Count: </span><span class="value" id="rec-count-text">0</span></span>
-        </div>
-      </div>
-      <div class="auto-log-card">
-        <div class="auto-log-header">
-          <span>Record Log</span>
-          <button class="secondary" id="rec-clear-btn" onclick="clearRecordLog()" disabled>Clear</button>
-        </div>
-        <div id="rec-log-list"></div>
-      </div>
-    </div>
-
-    <!-- Train & Play Tab -->
-    <div class="tab-content" id="tab-train">
-      <!-- === TRAIN SECTION === -->
-      <div id="train-section" style="display:flex;flex-direction:column;gap:6px;flex:1;min-height:0">
-        <!-- Session selector bar -->
-        <div class="train-controls" style="display:flex;gap:6px;align-items:center">
-          <select id="train-session-select" onchange="loadTrainSession()" style="flex:1;background:var(--bg-1);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12px">
-            <option value="">Select session...</option>
-          </select>
-          <button class="secondary" style="font-size:11px;padding:3px 8px" onclick="loadTrainSessions()">Refresh</button>
-          <button class="danger" style="font-size:11px;padding:3px 8px" onclick="deleteTrainSession()">Delete</button>
-        </div>
-        <!-- 3:7 split layout -->
-        <div style="display:flex;gap:6px;flex:1;min-height:0">
-          <!-- Left: Tree (30%) -->
-          <div id="train-tree-panel" style="flex:3;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden">
-            <div style="padding:6px 8px;border-bottom:1px solid var(--line)">
-              <span style="font-size:12px;font-weight:600">States</span>
-            </div>
-            <div id="train-progress" style="font-size:10px;color:var(--text-dim);padding:2px 8px;display:none"></div>
-            <div id="train-tree-list" style="flex:1;overflow-y:auto;padding:4px;font-size:11px">
-              <div style="color:var(--text-dim);padding:8px">Select a session to begin</div>
-            </div>
-          </div>
-          <!-- Right: Detail (70%) -->
-          <div id="train-detail-panel" style="flex:7;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden">
-            <div style="padding:6px 8px;border-bottom:1px solid var(--line)">
-              <span id="train-detail-title" style="font-size:12px;font-weight:600">Detail</span>
-            </div>
-            <div id="train-detail-body" style="flex:1;overflow-y:auto;padding:8px">
-              <div style="color:var(--text-dim);font-size:11px">Select a state or capture from the tree</div>
-            </div>
-          </div>
-        </div>
-        <!-- Action buttons -->
-        <div style="border-top:1px solid var(--line);padding-top:8px;display:flex;justify-content:center;gap:8px">
-          <button id="train-embed-btn" class="success" style="font-size:11px;padding:4px 14px" onclick="embedAllCaptures()" disabled>Embed</button>
-          <button id="train-analyze-btn" class="secondary" style="font-size:11px;padding:4px 14px" onclick="analyzeAllCaptures()" disabled>Analyze</button>
-          <button id="train-confirm-btn" style="font-size:11px;padding:4px 14px" onclick="confirmTrainChanges()" disabled>Confirm</button>
-        </div>
-      </div>
-
-      <!-- === PLAY SECTION === -->
-      <div style="border-top:2px solid var(--line);margin-top:8px;padding-top:8px;display:flex;flex-direction:column;gap:6px;flex-shrink:0">
-        <div class="auto-card" style="margin:0">
-          <h3 style="margin:0 0 6px 0;font-size:13px">Play</h3>
-          <div class="auto-controls">
-            <button id="auto-start-btn" class="success" onclick="startAuto()">Start Auto-Play</button>
-            <button id="auto-stop-btn" class="danger" onclick="stopAuto()" disabled>Stop</button>
-          </div>
-          <div class="auto-info">
-            <span><span class="label">Status: </span><span class="value stopped" id="auto-status-text">Stopped</span></span>
-            <span><span class="label">Mode: </span><span id="auto-mode-text" style="color:var(--text-dim)">None</span></span>
-          </div>
-        </div>
-        <!-- Game Rules -->
-        <div class="play-ctrl" style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
-          <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Game Rules</label>
-          <textarea id="rules-textarea" rows="3" placeholder="Describe game rules for the AI agent..."></textarea>
-          <div class="learn-buttons">
-            <button onclick="saveRules()">Save Rules</button>
-            <button class="secondary" onclick="summarizeRules()">Summarize</button>
-            <span id="summarize-status"></span>
-          </div>
-        </div>
-      </div>
-
-      <!-- === ACTIVITY LOG (visible during play) === -->
-      <div class="auto-log-card" id="play-activity-log" style="flex:0 1 200px;min-height:100px;display:none">
-        <div class="auto-log-header">
-          <span>Activity Log</span>
-          <button class="secondary" onclick="clearAutoLog()">Clear</button>
-        </div>
-        <div id="auto-log-list"></div>
-      </div>
-    </div>
-
-  </div>
-</div>
-
-<!-- Settings Modal -->
-<div id="settings-modal" class="settings-modal-backdrop" onclick="if(event.target===this)closeSettingsModal()">
-  <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
-    <div class="settings-modal-header">
-      <div class="settings-modal-title" id="settings-modal-title">Settings</div>
-      <button class="secondary" onclick="closeSettingsModal()" aria-label="Close settings">Close</button>
-    </div>
-    <div class="settings-modal-body">
-      <div class="setting-row">
-        <label>API Key</label>
-        <input id="cfg-api-key" type="password" placeholder="sk-...">
-      </div>
-      <div class="setting-row">
-        <label>Game Model</label>
-        <input id="cfg-model" placeholder="qwen/qwen3.5-27b">
-      </div>
-      <div class="setting-row">
-        <label>Vision Model</label>
-        <input id="cfg-vision-model" placeholder="google/gemini-2.0-flash-001">
-      </div>
-      <div class="setting-row">
-        <label>Base URL</label>
-        <input id="cfg-base-url" placeholder="https://openrouter.ai/api/v1">
-      </div>
-    </div>
-    <div class="settings-modal-actions">
-      <button class="secondary" onclick="closeSettingsModal()">Cancel</button>
-      <button onclick="applySettings()">Apply</button>
-    </div>
+<div id="canvas">
+  <div id="empty-state">
+    <div class="es-title">연결된 기기가 없습니다</div>
+    <div class="es-sub">기기를 연결하면 화면이 자동으로 나타납니다</div>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/jmuxer@2.1.0/dist/jmuxer.min.js"></script>
 <script>
 /* =================================================================
-   scrcpy AI Control Panel - FastAPI Migration
-   API calls -> same origin (Python FastAPI on port 8080)
-   Video/Control WebSocket -> C backend on port 18080
+   scrcpy Web Remote — multi-device dashboard
+   Each device = one floating PhoneCard. Video/control go to the C
+   backend via Apache (/ws/* -> 18080, /ws2/* -> 18081).
    ================================================================= */
 
-/* ---------- WebSocket URL computation ---------- */
-// Same-origin WebSocket (Apache proxies /ws/* to C backend)
 const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-const videoWsUrl = `${wsProto}//${window.location.host}/ws/video`;
-const controlWsUrl = `${wsProto}//${window.location.host}/ws/control`;
+function wsUrl(path) { return `${wsProto}//${window.location.host}${path}`; }
 
-/* ---------- Global state ---------- */
-let lastMsgCount = 0;
-let pollTimer = null;
-let currentTab = 'record';
-let autoLogMsgIndex = 0;
-let activityLogIndex = 0;
-let isRecording = false;
-let recordCount = 0;
-let recordLogEntries = [];
-let rulesLoaded = false;
+// One entry per device. Add more here + a matching scrcpy-webN service & Apache route.
+const DEVICES = [
+  { label: 'Z-Flip4', video: '/ws/video',  control: '/ws/control'  },
+  { label: 'Redroid-Game', video: '/ws2/video', control: '/ws2/control' },
+  { label: 'Redroid', video: '/ws3/video', control: '/ws3/control' },
+];
 
-/* ---------- Helpers ---------- */
-function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
-
-function fmtTime() {
-  const d = new Date();
-  const pad = n => String(n).padStart(2, '0');
-  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
-    + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
-}
-
-async function api(method, path, body) {
-  try {
-    const opts = { method };
-    if (body !== undefined) {
-      opts.headers = { 'Content-Type': 'application/json' };
-      opts.body = JSON.stringify(body);
-    }
-    const r = await fetch(path, opts);
-    if (!r.ok) {
-      const text = await r.text().catch(() => r.statusText);
-      throw new Error(text || r.statusText);
-    }
-    const ct = r.headers.get('content-type') || '';
-    if (ct.includes('application/json')) {
-      return await r.json();
-    }
-    return { ok: true };
-  } catch (e) {
-    console.error('API error:', method, path, e);
-    return null;
-  }
-}
-
-/* ---------- Settings Modal ---------- */
-function openSettingsModal() {
-  const modal = document.getElementById('settings-modal');
-  if (!modal) return;
-  modal.classList.add('show');
-}
-
-function closeSettingsModal() {
-  const modal = document.getElementById('settings-modal');
-  if (!modal) return;
-  modal.classList.remove('show');
-}
-
-// Escape handler is now inside handleWebKeyboard; settings modal close:
-document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape' && !keyboardActive) closeSettingsModal();
-});
-
-async function applySettings() {
-  const api_key = document.getElementById('cfg-api-key').value;
-  const model = document.getElementById('cfg-model').value;
-  const vision_model = document.getElementById('cfg-vision-model').value;
-  const base_url = document.getElementById('cfg-base-url').value;
-  await api('POST', '/api/config', { api_key, model, vision_model, base_url });
-  closeSettingsModal();
-}
-
-/* ---------- Tabs ---------- */
-function switchTab(tab) {
-  currentTab = tab;
-  const tabs = ['record', 'train'];
-  document.querySelectorAll('.tab-btn').forEach((btn, i) => {
-    btn.classList.toggle('active', tabs[i] === tab);
-  });
-  document.querySelectorAll('.tab-content').forEach(el => {
-    el.classList.toggle('active', el.id === 'tab-' + tab);
-  });
-  if (tab === 'train') loadTrainSessions();
-}
-
-/* ---------- Auto-Play (Play Tab) ---------- */
-function formatToolCall(tc) {
-  try {
-    const fn = tc.function ? tc.function.name : '';
-    const raw = tc.function ? tc.function.arguments : '{}';
-    const a = JSON.parse(raw);
-    if (fn === 'position_click') return 'click [' + a.x + ',' + a.y + ']';
-    if (fn === 'position_long_press') return 'long_press [' + a.x + ',' + a.y + '] ' + (a.duration_ms || 500) + 'ms';
-    if (fn === 'swipe') return 'swipe [' + a.x1 + ',' + a.y1 + '\u2192' + a.x2 + ',' + a.y2 + ']';
-    if (fn === 'key_press') return 'key [' + a.keycode + ']';
-    if (fn === 'key_down') return 'key_down [' + a.keycode + ']';
-    if (fn === 'key_up') return 'key_up [' + a.keycode + ']';
-    if (fn === 'input_text') return 'text "' + (a.text || '').substring(0, 30) + '"';
-    if (fn === 'screenshot') return 'screenshot';
-    return fn + '(' + raw.substring(0, 40) + ')';
-  } catch (e) { return '(parse error)'; }
-}
-
-function appendAutoLog(messages) {
-  if (!messages || messages.length <= autoLogMsgIndex) return;
-  const logEl = document.getElementById('auto-log-list');
-  if (!logEl) return;
-  const wasAtBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 20;
-  const ts = fmtTime();
-
-  for (let i = autoLogMsgIndex; i < messages.length; i++) {
-    const m = messages[i];
-    if (m.role === 'system') continue;
-
-    if (m.role === 'assistant') {
-      let hasContent = m.content && m.content.trim();
-      let hasTc = false;
-      let tcParts = [];
-      if (m.tool_calls) {
-        try {
-          const tcs = JSON.parse(m.tool_calls);
-          if (Array.isArray(tcs) && tcs.length > 0) {
-            hasTc = true;
-            tcParts = tcs.map(formatToolCall);
-          }
-        } catch (e) { /* ignore */ }
-      }
-      if (!hasContent && !hasTc) continue;
-      const div = document.createElement('div');
-      div.className = 'log-entry';
-      let html = '';
-      if (hasContent) {
-        const text = m.content.length > 120 ? m.content.substring(0, 120) + '...' : m.content;
-        html += '<span class="log-ts">[' + escapeHtml(ts) + ']</span> ';
-        html += '<span class="log-ai">AI:</span> ';
-        html += '<span class="log-ai-text">"' + escapeHtml(text) + '"</span>';
-      }
-      if (hasTc) {
-        if (hasContent) html += '<br>';
-        html += '<span class="log-ts">[' + escapeHtml(ts) + ']</span> ';
-        html += '<span class="log-tool">Tool:</span> ';
-        html += '<span class="log-tool-detail">' + escapeHtml(tcParts.join(' | ')) + '</span>';
-      }
-      div.innerHTML = html;
-      logEl.appendChild(div);
-    } else if (m.role === 'tool') {
-      const div = document.createElement('div');
-      div.className = 'log-entry';
-      const text = (m.content || '').length > 100 ? m.content.substring(0, 100) + '...' : (m.content || '');
-      div.innerHTML = '<span class="log-ts">[' + escapeHtml(ts) + ']</span> '
-        + '<span class="log-tool">Result:</span> '
-        + '<span class="log-tool-detail">' + escapeHtml(text) + '</span>';
-      logEl.appendChild(div);
-    }
-  }
-  autoLogMsgIndex = messages.length;
-  if (wasAtBottom) logEl.scrollTop = logEl.scrollHeight;
-}
-
-function appendActivityLog(entries) {
-  if (!entries || entries.length <= activityLogIndex) return;
-  const logEl = document.getElementById('auto-log-list');
-  if (!logEl) return;
-  const wasAtBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 20;
-  const ts = fmtTime();
-
-  for (let i = activityLogIndex; i < entries.length; i++) {
-    const e = entries[i];
-    if (!e.content) continue;
-    const div = document.createElement('div');
-    div.className = 'log-entry';
-    const text = e.content.length > 200 ? e.content.substring(0, 200) + '...' : e.content;
-    const roleClass = e.role === 'user' ? 'log-user' : 'log-ai';
-    const roleLabel = e.role === 'user' ? 'User' : 'Agent';
-    div.innerHTML = '<span class="log-ts">[' + escapeHtml(ts) + ']</span> '
-      + '<span class="' + roleClass + '">' + roleLabel + ':</span> '
-      + '<span class="log-ai-text">' + escapeHtml(text) + '</span>';
-    logEl.appendChild(div);
-  }
-  activityLogIndex = entries.length;
-  if (wasAtBottom) logEl.scrollTop = logEl.scrollHeight;
-}
-
-function clearAutoLog() {
-  const el = document.getElementById('auto-log-list');
-  if (el) el.innerHTML = '';
-  activityLogIndex = 0;
-}
-
-async function startAuto() {
-  clearAutoLog();
-  autoLogMsgIndex = 0;
-  activityLogIndex = 0;
-  // Auto-load CLIP embeddings from selected train session
-  const sess = document.getElementById('train-session-select').value;
-  if (sess) {
-    const r = await api('POST', '/api/clip/load', { session: sess });
-    if (!r || !r.ok) {
-      alert('Failed to load embeddings for session "' + sess + '". Run Embed first.');
-      return;
-    }
-  }
-  await api('POST', '/api/auto/start');
-  setTimeout(pollState, 300);
-}
-
-async function stopAuto() {
-  await api('POST', '/api/auto/stop');
-  setTimeout(pollState, 300);
-}
-
-function renderAutoState(autoRunning, gameRules, playMode) {
-  const statusEl = document.getElementById('auto-status-text');
-  const startBtn = document.getElementById('auto-start-btn');
-  const stopBtn = document.getElementById('auto-stop-btn');
-  const modeEl = document.getElementById('auto-mode-text');
-  const activityLog = document.getElementById('play-activity-log');
-  const trainSection = document.getElementById('train-section');
-
-  if (autoRunning) {
-    statusEl.textContent = 'Running';
-    statusEl.className = 'value';
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
-    // Disable all train controls and play controls (except Stop)
-    document.querySelectorAll('#train-section button, #train-section select, .play-ctrl, .play-ctrl button, .play-ctrl textarea').forEach(el => {
-      el.disabled = true;
-      el.style.pointerEvents = 'none';
-      el.style.opacity = '0.4';
-    });
-    trainSection.style.opacity = '0.5';
-    trainSection.style.pointerEvents = 'none';
-    // Show activity log
-    if (activityLog) activityLog.style.display = '';
-  } else {
-    statusEl.textContent = 'Stopped';
-    statusEl.className = 'value stopped';
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    // Re-enable all controls
-    document.querySelectorAll('#train-section button, #train-section select, .play-ctrl, .play-ctrl button, .play-ctrl textarea').forEach(el => {
-      el.disabled = false;
-      el.style.pointerEvents = '';
-      el.style.opacity = '';
-    });
-    trainSection.style.opacity = '';
-    trainSection.style.pointerEvents = '';
-  }
-
-  if (modeEl) {
-    if (playMode === 'clip') {
-      modeEl.textContent = 'CLIP';
-      modeEl.style.color = 'var(--accent-2)';
-    } else if (playMode === 'hybrid') {
-      modeEl.textContent = 'Hybrid';
-      modeEl.style.color = 'var(--good)';
-    } else if (playMode === 'tree') {
-      modeEl.textContent = 'Tree';
-      modeEl.style.color = 'var(--good)';
-    } else if (playMode === 'rules') {
-      modeEl.textContent = 'Rules';
-      modeEl.style.color = 'var(--accent)';
-    } else {
-      modeEl.textContent = 'None';
-      modeEl.style.color = 'var(--text-dim)';
-    }
-  }
-}
-
-async function loadClipForPlay() {
-  const sess = prompt('Enter session name to load CLIP embeddings:',
-    document.getElementById('train-session-select').value || '');
-  if (!sess) return;
-  const r = await api('POST', '/api/clip/load', { session: sess });
-  if (r && r.ok) {
-    const modeEl = document.getElementById('auto-mode-text');
-    modeEl.textContent = 'CLIP (' + (r.count || 0) + ' embeddings)';
-    modeEl.style.color = 'var(--accent-2)';
-  } else {
-    alert('Failed to load embeddings. Make sure they exist for this session.');
-  }
-}
-
-async function loadTreeForPlay() {
-  const r = await fetch('/api/train/tree');
-  if (!r.ok) { alert('Failed to load tree'); return; }
-  try {
-    const data = await r.json();
-    if (data && data.states && data.states.length > 0) {
-      const modeEl = document.getElementById('auto-mode-text');
-      modeEl.textContent = 'Tree (' + data.states.length + ' states)';
-      modeEl.style.color = 'var(--good)';
-    } else {
-      alert('No tree found. Build and save a tree in the Train tab first.');
-    }
-  } catch (e) { alert('Failed to parse tree'); }
-}
-
-async function clearClipEmbeddings() {
-  await api('POST', '/api/clip/clear');
-  setTimeout(pollState, 300);
-}
-
-/* ---------- Game Rules ---------- */
-async function saveRules() {
-  const rules = document.getElementById('rules-textarea').value;
-  await api('POST', '/api/game-rules', { rules: rules });
-  document.getElementById('summarize-status').textContent = 'Saved!';
-  setTimeout(() => { document.getElementById('summarize-status').textContent = ''; }, 2000);
-  setTimeout(pollState, 300);
-}
-
-async function summarizeRules() {
-  const statusEl = document.getElementById('summarize-status');
-  statusEl.textContent = 'Summarizing...';
-  const result = await api('POST', '/api/game-rules/summarize');
-  if (result && result.rules) {
-    document.getElementById('rules-textarea').value = result.rules;
-    statusEl.textContent = 'Done! Review and save.';
-  } else {
-    statusEl.textContent = 'Failed to summarize.';
-  }
-  setTimeout(() => { statusEl.textContent = ''; }, 3000);
-}
-
-/* ---------- Recording ---------- */
-let recordPending = false; // prevent polling override during API calls
-let recordCapturing = false; // prevent concurrent captures
-
-async function startRecording() {
-  recordPending = true;
-  const r = await api('POST', '/api/record/start');
-  recordPending = false;
-  if (r) {
-    isRecording = true;
-    recordCount = 0;
-    recordLogEntries = [];
-    updateRecordUI();
-  }
-}
-
-async function stopRecording() {
-  // Immediately update UI
-  isRecording = false;
-  updateRecordUI();
-  recordPending = true;
-  await api('POST', '/api/record/stop');
-  recordPending = false;
-}
-
-function updateRecordUI() {
-  const statusEl = document.getElementById('rec-status-text');
-  const startBtn = document.getElementById('rec-start-btn');
-  const stopBtn = document.getElementById('rec-stop-btn');
-  const countEl = document.getElementById('rec-count-text');
-  const clearBtn = document.getElementById('rec-clear-btn');
-  const wrapper = document.getElementById('video-wrapper');
-  if (isRecording) {
-    statusEl.textContent = 'Recording';
-    statusEl.className = 'value';
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
-    clearBtn.disabled = true;
-    wrapper.classList.add('recording');
-  } else {
-    statusEl.textContent = 'Stopped';
-    statusEl.className = 'value stopped';
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    clearBtn.disabled = (recordCount === 0);
-    wrapper.classList.remove('recording');
-  }
-  countEl.textContent = recordCount;
-}
-
-async function clearRecordLog() {
-  if (isRecording) return;
-  await api('POST', '/api/record/clear');
-  recordLogEntries = [];
-  recordCount = 0;
-  document.getElementById('rec-log-list').innerHTML = '';
-  document.getElementById('rec-count-text').textContent = '0';
-}
-
-function addRecordLogEntry(x, y, w, h, idx) {
-  const el = document.getElementById('rec-log-list');
-  const now = new Date();
-  const ts = now.toTimeString().split(' ')[0];
-  const entry = document.createElement('div');
-  entry.className = 'log-entry';
-  entry.innerHTML = '<span class="log-ts">[' + ts + ']</span> '
-    + '<span class="log-tool">Touch #' + idx + '</span> '
-    + '<span class="log-tool-detail">(' + x + ', ' + y + ') on ' + w + 'x' + h + '</span>';
-  el.appendChild(entry);
-  el.scrollTop = el.scrollHeight;
-}
-
-/* ---------- Train Tab ---------- */
-let trainCaptures = [];
-let trainLabels = {};
-let trainTree = { states: [] };
-let trainSelectedNode = null;
-let trainSessionName = '';
-let trainDirty = false;
-
-function setTrainDirty(dirty) {
-  trainDirty = dirty;
-  const btn = document.getElementById('train-confirm-btn');
-  if (btn) btn.disabled = !dirty;
-}
-
-async function confirmTrainChanges() {
-  const sess = document.getElementById('train-session-select').value;
-  if (!sess) return;
-  // Save embeddings
-  const r = await api('POST', '/api/train/save', { session: sess, labels: trainLabels });
-  if (r && r.ok) {
-    setTrainDirty(false);
-    const prog = document.getElementById('train-progress');
-    prog.style.display = 'block';
-    prog.textContent = 'Saved successfully.';
-    setTimeout(function () { prog.style.display = 'none'; }, 3000);
-  } else {
-    alert('Save failed.');
-  }
-}
-
-async function loadTrainSessions() {
-  const r = await api('GET', '/api/train/sessions');
-  if (!r) return;
-  const sel = document.getElementById('train-session-select');
-  sel.innerHTML = '<option value="">Select session...</option>';
-  const sessions = Array.isArray(r) ? r : [];
-  sessions.sort((a, b) => b.name.localeCompare(a.name));
-  for (const s of sessions) {
-    const opt = document.createElement('option');
-    opt.value = s.name;
-    opt.textContent = s.name + ' (' + s.count + ')';
-    sel.appendChild(opt);
-  }
-}
-
-async function deleteTrainSession() {
-  const name = document.getElementById('train-session-select').value;
-  if (!name) return;
-  if (!confirm('Delete session ' + name + '? This cannot be undone.')) return;
-  await api('POST', '/api/train/session/delete', { name: name });
-  trainCaptures = [];
-  trainLabels = {};
-  trainTree = { states: [] };
-  trainSelectedNode = null;
-  renderTreeList();
-  renderTrainDetail();
-  loadTrainSessions();
-}
-
-async function loadTrainSession() {
-  const name = document.getElementById('train-session-select').value;
-  if (!name) return;
-  trainSessionName = name;
-  const r = await api('GET', '/api/train/session?name=' + encodeURIComponent(name));
-  if (!r) return;
-  trainCaptures = Array.isArray(r) ? r : [];
-  trainCaptures.sort((a, b) => a.index - b.index);
-  trainLabels = {};
-  trainTree = { states: [] };
-  trainSelectedNode = null;
-  setTrainDirty(false);
-  // Load saved labels if any
-  const lbls = await api('GET', '/api/train/labels?session=' + encodeURIComponent(name));
-  if (lbls && typeof lbls === 'object' && !('ok' in lbls)) {
-    trainLabels = lbls;
-  }
-  renderTreeList();
-  renderTrainDetail();
-  document.getElementById('train-analyze-btn').disabled = (trainCaptures.length === 0);
-  document.getElementById('train-embed-btn').disabled = (trainCaptures.length === 0);
-}
-
-function renderTreeList() {
-  const el = document.getElementById('train-tree-list');
-  if (trainCaptures.length === 0 && trainTree.states.length === 0) {
-    el.innerHTML = '<div style="color:var(--text-dim);padding:8px">Load a session to begin</div>';
-    return;
-  }
-  let html = '';
-  if (trainTree.states.length > 0) {
-    trainTree.states.forEach(function (state, si) {
-      const isSel = trainSelectedNode && trainSelectedNode.type === 'state'
-        && trainSelectedNode.idx === si;
-      html += '<div class="train-tree-node" style="cursor:pointer;padding:3px 6px;border-radius:4px;margin-bottom:1px;display:flex;align-items:center;gap:4px;'
-        + (isSel ? 'background:var(--bg-2);border-left:2px solid var(--accent)' : '') + '">';
-      html += '<input type="checkbox" class="merge-cb" data-si="' + si + '" style="width:12px;height:12px;cursor:pointer" onclick="event.stopPropagation();updateMergeBtn()" title="Select for merge">';
-      html += '<span style="flex:1;cursor:pointer" onclick="selectTreeNode(\'state\',' + si + ')">';
-      html += '<span style="color:var(--accent);font-weight:600">' + escapeHtml(state.label) + '</span>';
-      html += '<span style="color:var(--text-dim);margin-left:4px">(' + state.captures.length + ')</span>';
-      html += '</span>';
-      html += '<button style="font-size:9px;padding:0 4px;background:transparent;color:var(--bad);border:1px solid var(--bad);border-radius:3px;cursor:pointer" onclick="event.stopPropagation();deleteState(' + si + ')" title="Delete state">&times;</button>';
-      html += '</div>';
-      state.captures.forEach(function (capIdx, ci) {
-        const isCap = trainSelectedNode && trainSelectedNode.type === 'capture'
-          && trainSelectedNode.stateIdx === si && trainSelectedNode.capIdx === ci;
-        html += '<div style="cursor:pointer;padding:2px 6px 2px 18px;border-radius:4px;margin-bottom:1px;font-size:10px;'
-          + (isCap ? 'background:var(--bg-2);border-left:2px solid var(--accent-2)' : '') + '" onclick="selectTreeNode(\'capture\',' + si + ',' + ci + ')">';
-        const cap = trainCaptures.find(function (c) { return c.index === capIdx; });
-        html += '#' + capIdx;
-        if (cap) html += ' <span style="color:var(--text-dim)">(' + cap.x + ',' + cap.y + ')</span>';
-        html += '</div>';
-      });
-    });
-  } else {
-    trainCaptures.forEach(function (cap, i) {
-      const isSel = trainSelectedNode && trainSelectedNode.type === 'flat'
-        && trainSelectedNode.idx === i;
-      const label = trainLabels[cap.index] || '';
-      html += '<div style="cursor:pointer;padding:3px 6px;border-radius:4px;margin-bottom:1px;font-size:11px;'
-        + (isSel ? 'background:var(--bg-2);border-left:2px solid var(--accent)' : '') + '" onclick="selectTreeNode(\'flat\',' + i + ')">';
-      html += '#' + cap.index;
-      html += ' <span style="color:var(--text-dim)">(' + cap.x + ',' + cap.y + ')</span>';
-      if (label) html += ' <span style="color:var(--accent)">' + escapeHtml(label) + '</span>';
-      html += '</div>';
-    });
-  }
-  el.innerHTML = html;
-}
-
-function selectTreeNode(type, idx, capIdx) {
-  if (type === 'capture') {
-    trainSelectedNode = { type: 'capture', stateIdx: idx, capIdx: capIdx };
-  } else {
-    trainSelectedNode = { type: type, idx: idx };
-  }
-  renderTreeList();
-  renderTrainDetail();
-}
-
-function renderTrainDetail() {
-  const titleEl = document.getElementById('train-detail-title');
-  const bodyEl = document.getElementById('train-detail-body');
-  const sess = trainSessionName || trainTree.session || document.getElementById('train-session-select').value;
-  if (!trainSelectedNode) {
-    titleEl.textContent = 'Detail';
-    bodyEl.innerHTML = '<div style="color:var(--text-dim);font-size:11px">Select a state or capture from the tree</div>';
-    return;
-  }
-  const sel = trainSelectedNode;
-  if (sel.type === 'state') {
-    const state = trainTree.states[sel.idx];
-    titleEl.textContent = 'State: ' + state.label;
-    let h = '<div style="margin-bottom:8px">';
-    h += '<label style="font-size:11px;color:var(--text-dim)">State Label</label>';
-    h += '<input id="train-state-label" value="' + escapeHtml(state.label)
-      + '" style="width:100%;background:var(--bg-0);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12px;margin-top:2px" onchange="updateStateLabel(' + sel.idx + ',this.value)">';
-    h += '</div>';
-    h += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">Captures (' + state.captures.length + ')</div>';
-    h += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">';
-    state.captures.forEach(function (capIdx, ci) {
-      const imgUrl = '/api/train/image?session=' + encodeURIComponent(sess) + '&index=' + capIdx;
-      h += '<div style="position:relative;display:inline-block">';
-      h += '<img src="' + imgUrl + '" style="height:50px;border-radius:4px;border:1px solid var(--line)" title="#' + capIdx + '" loading="lazy">';
-      h += '<button style="position:absolute;top:-4px;right:-4px;width:16px;height:16px;font-size:10px;padding:0;background:var(--bad);color:#fff;border:none;border-radius:50%;cursor:pointer;line-height:16px;text-align:center" onclick="removeCaptureFromState(' + sel.idx + ',' + ci + ')" title="Remove capture">&times;</button>';
-      h += '</div>';
-    });
-    h += '</div>';
-    h += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">Actions (' + state.actions.length + ')</div>';
-    state.actions.forEach(function (action, ai) {
-      h += '<div style="display:flex;gap:4px;align-items:center;margin-bottom:3px;font-size:11px">';
-      h += '<span style="color:var(--good)">tap (' + action.x + ',' + action.y + ')</span>';
-      h += '<input value="' + escapeHtml(action.description || '') + '" placeholder="description" style="flex:1;background:var(--bg-0);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:2px 6px;font-size:11px" onchange="updateActionDesc(' + sel.idx + ',' + ai + ',this.value)">';
-      h += '<button style="font-size:9px;padding:0 4px;background:transparent;color:var(--bad);border:1px solid var(--bad);border-radius:3px;cursor:pointer" onclick="deleteAction(' + sel.idx + ',' + ai + ')" title="Delete action">&times;</button>';
-      h += '</div>';
-    });
-    bodyEl.innerHTML = h;
-  } else if (sel.type === 'capture') {
-    const state = trainTree.states[sel.stateIdx];
-    const capIdx = state.captures[sel.capIdx];
-    const cap = trainCaptures.find(function (c) { return c.index === capIdx; });
-    titleEl.textContent = 'Capture #' + capIdx;
-    const imgUrl = '/api/train/image?session=' + encodeURIComponent(sess) + '&index=' + capIdx;
-    let h = '<div style="text-align:center;margin-bottom:8px">';
-    h += '<img src="' + imgUrl + '" style="max-width:100%;max-height:200px;border-radius:6px;border:1px solid var(--line)" loading="lazy">';
-    h += '</div>';
-    if (cap) {
-      h += '<div style="font-size:11px;margin-bottom:4px">';
-      h += '<span style="color:var(--text-dim)">Touch: </span>';
-      h += '<span style="color:var(--good)">(' + cap.x + ', ' + cap.y + ')</span>';
-      h += ' <span style="color:var(--text-dim)">on ' + cap.w + 'x' + cap.h + '</span>';
-      h += '</div>';
-    }
-    h += '<div style="font-size:11px;margin-bottom:4px">';
-    h += '<span style="color:var(--text-dim)">State: </span>';
-    h += '<span style="color:var(--accent)">' + escapeHtml(state.label) + '</span>';
-    h += '</div>';
-    const label = trainLabels[capIdx] || '';
-    h += '<div style="font-size:11px">';
-    h += '<span style="color:var(--text-dim)">VLM Label: </span>';
-    h += '<span>' + escapeHtml(label || '(not analyzed)') + '</span>';
-    h += '</div>';
-    bodyEl.innerHTML = h;
-  } else if (sel.type === 'flat') {
-    const cap = trainCaptures[sel.idx];
-    titleEl.textContent = 'Capture #' + cap.index;
-    const imgUrl = '/api/train/image?session=' + encodeURIComponent(sess) + '&index=' + cap.index;
-    let h = '<div style="text-align:center;margin-bottom:8px">';
-    h += '<img src="' + imgUrl + '" style="max-width:100%;max-height:200px;border-radius:6px;border:1px solid var(--line)" loading="lazy">';
-    h += '</div>';
-    h += '<div style="font-size:11px;margin-bottom:4px">';
-    h += '<span style="color:var(--text-dim)">Touch: </span>';
-    h += '<span style="color:var(--good)">(' + cap.x + ', ' + cap.y + ')</span>';
-    h += ' <span style="color:var(--text-dim)">on ' + cap.w + 'x' + cap.h + '</span>';
-    h += '</div>';
-    const label = trainLabels[cap.index] || '';
-    h += '<div style="font-size:11px">';
-    h += '<span style="color:var(--text-dim)">VLM Label: </span>';
-    h += '<span>' + escapeHtml(label || '(not analyzed)') + '</span>';
-    h += '</div>';
-    bodyEl.innerHTML = h;
-  }
-}
-
-function updateStateLabel(stateIdx, newLabel) {
-  trainTree.states[stateIdx].label = newLabel;
-  renderTreeList();
-}
-
-function updateActionDesc(stateIdx, actionIdx, desc) {
-  trainTree.states[stateIdx].actions[actionIdx].description = desc;
-}
-
-async function analyzeAllCaptures() {
-  const sess = document.getElementById('train-session-select').value;
-  if (!sess || trainCaptures.length === 0) return;
-  const btn = document.getElementById('train-analyze-btn');
-  const prog = document.getElementById('train-progress');
-  btn.disabled = true;
-  prog.style.display = 'block';
-  for (let i = 0; i < trainCaptures.length; i++) {
-    const cap = trainCaptures[i];
-    prog.textContent = 'Analyzing ' + (i + 1) + '/' + trainCaptures.length + '...';
-    const r = await api('POST', '/api/train/analyze', { session: sess, index: cap.index });
-    if (r && r.label) {
-      trainLabels[cap.index] = r.label;
-    } else {
-      trainLabels[cap.index] = '(failed)';
-    }
-    renderTreeList();
-  }
-  prog.textContent = 'Analysis complete.';
-  btn.disabled = false;
-  setTrainDirty(true);
-  setTimeout(function () { prog.style.display = 'none'; }, 3000);
-}
-
-async function embedAllCaptures() {
-  const sess = document.getElementById('train-session-select').value;
-  if (!sess || trainCaptures.length === 0) return;
-  const btn = document.getElementById('train-embed-btn');
-  const prog = document.getElementById('train-progress');
-  btn.disabled = true;
-  prog.style.display = 'block';
-  let ok = 0, fail = 0;
-  for (let i = 0; i < trainCaptures.length; i++) {
-    const cap = trainCaptures[i];
-    prog.textContent = 'Embedding ' + (i + 1) + '/' + trainCaptures.length + '...';
-    const r = await api('POST', '/api/train/embed', { session: sess, index: cap.index });
-    if (r && r.ok) { ok++; } else { fail++; }
-  }
-  prog.textContent = 'Done! ' + ok + ' embeddings created' + (fail > 0 ? ', ' + fail + ' failed' : '') + '.';
-  btn.disabled = false;
-  if (ok > 0) setTrainDirty(true);
-  setTimeout(function () { prog.style.display = 'none'; }, 5000);
-}
-
-function buildDecisionTree() {
-  const groups = {};
-  for (const cap of trainCaptures) {
-    const label = (trainLabels[cap.index] || 'Unknown').trim();
-    if (!groups[label]) groups[label] = { captures: [], actions: [] };
-    groups[label].captures.push(cap.index);
-    if (cap.x || cap.y) {
-      const exists = groups[label].actions.some(function (a) {
-        return Math.abs(a.x - cap.x) < 20 && Math.abs(a.y - cap.y) < 20;
-      });
-      if (!exists) {
-        groups[label].actions.push({ x: cap.x, y: cap.y, w: cap.w, h: cap.h, description: '' });
-      }
-    }
-  }
-  const sess = document.getElementById('train-session-select').value;
-  trainTree = { session: sess, states: [] };
-  let idx = 0;
-  for (const [label, data] of Object.entries(groups)) {
-    trainTree.states.push({
-      id: 'state_' + idx++,
-      label: label,
-      captures: data.captures,
-      actions: data.actions
-    });
-  }
-  trainSelectedNode = null;
-  renderTreeList();
-  renderTrainDetail();
-  document.getElementById('train-save-tree-btn').disabled = false;
-  document.getElementById('train-export-btn').disabled = false;
-}
-
-async function saveDecisionTree() {
-  await api('POST', '/api/train/tree', trainTree);
-  const prog = document.getElementById('train-progress');
-  prog.style.display = 'block';
-  prog.textContent = 'Tree saved!';
-  setTimeout(function () { prog.style.display = 'none'; }, 2000);
-}
-
-async function loadDecisionTree() {
-  const r = await fetch('/api/train/tree');
-  if (!r.ok) return;
-  try {
-    const data = await r.json();
-    if (data && data.states) {
-      trainTree = data;
-      trainSelectedNode = null;
-      if (data.session) {
-        trainSessionName = data.session;
-        await loadTrainSessions();
-        document.getElementById('train-session-select').value = data.session;
-      }
-      renderTreeList();
-      renderTrainDetail();
-      document.getElementById('train-save-tree-btn').disabled = false;
-      document.getElementById('train-export-btn').disabled = false;
-    }
-  } catch (e) { /* ignore */ }
-}
-
-function exportTreeJson() {
-  const json = JSON.stringify(trainTree, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'decision_tree.json';
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function deleteState(stateIdx) {
-  if (!confirm('Delete state: ' + trainTree.states[stateIdx].label + '?')) return;
-  trainTree.states.splice(stateIdx, 1);
-  trainTree.states.forEach(function (s, i) { s.id = 'state_' + i; });
-  trainSelectedNode = null;
-  renderTreeList();
-  renderTrainDetail();
-}
-
-function removeCaptureFromState(stateIdx, capIdx) {
-  const state = trainTree.states[stateIdx];
-  if (state.captures.length <= 1) {
-    if (confirm('This is the only capture. Delete the entire state?')) {
-      deleteState(stateIdx);
-    }
-    return;
-  }
-  state.captures.splice(capIdx, 1);
-  renderTreeList();
-  renderTrainDetail();
-}
-
-function deleteAction(stateIdx, actionIdx) {
-  trainTree.states[stateIdx].actions.splice(actionIdx, 1);
-  renderTreeList();
-  renderTrainDetail();
-}
-
-function updateMergeBtn() {
-  const cbs = document.querySelectorAll('.merge-cb:checked');
-  document.getElementById('train-merge-btn').disabled = (cbs.length < 2);
-}
-
-function mergeSelectedStates() {
-  const cbs = document.querySelectorAll('.merge-cb:checked');
-  if (cbs.length < 2) return;
-  const indices = [];
-  cbs.forEach(function (cb) { indices.push(parseInt(cb.dataset.si)); });
-  indices.sort(function (a, b) { return a - b; });
-  const target = trainTree.states[indices[0]];
-  for (let i = 1; i < indices.length; i++) {
-    const src = trainTree.states[indices[i]];
-    src.captures.forEach(function (c) {
-      if (target.captures.indexOf(c) < 0) target.captures.push(c);
-    });
-    src.actions.forEach(function (a) {
-      const exists = target.actions.some(function (ta) {
-        return Math.abs(ta.x - a.x) < 20 && Math.abs(ta.y - a.y) < 20;
-      });
-      if (!exists) target.actions.push(a);
-    });
-  }
-  for (let i = indices.length - 1; i >= 1; i--) {
-    trainTree.states.splice(indices[i], 1);
-  }
-  trainTree.states.forEach(function (s, i) { s.id = 'state_' + i; });
-  trainSelectedNode = null;
-  renderTreeList();
-  renderTrainDetail();
-  document.getElementById('train-merge-btn').disabled = true;
-}
-
-function importTreeJson() {
-  document.getElementById('train-import-file').click();
-}
-
-function handleImportFile(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = function (e) {
-    try {
-      const data = JSON.parse(e.target.result);
-      if (data && data.states) {
-        trainTree = data;
-        trainSelectedNode = null;
-        renderTreeList();
-        renderTrainDetail();
-        document.getElementById('train-save-tree-btn').disabled = false;
-        document.getElementById('train-export-btn').disabled = false;
-        const prog = document.getElementById('train-progress');
-        prog.style.display = 'block';
-        prog.textContent = 'Imported: ' + trainTree.states.length + ' states';
-        setTimeout(function () { prog.style.display = 'none'; }, 3000);
-      } else {
-        alert('Invalid tree JSON: missing states array');
-      }
-    } catch (err) {
-      alert('Failed to parse JSON: ' + err.message);
-    }
-  };
-  reader.readAsText(file);
-  event.target.value = '';
-}
-
-/* ---------- State Polling ---------- */
-async function pollState() {
-  const s = await api('GET', '/api/state');
-  const settingsBtn = document.getElementById('open-settings-btn');
-  if (!s) {
-    if (settingsBtn) {
-      settingsBtn.classList.add('disconnected');
-      settingsBtn.title = 'Disconnected';
-    }
-    return;
-  }
-  if (settingsBtn) {
-    settingsBtn.classList.remove('disconnected');
-    settingsBtn.title = 'Connected | ' + (s.screen_width || 0) + 'x' + (s.screen_height || 0);
-  }
-  renderAutoState(s.auto_running, s.game_rules, s.play_mode);
-  appendAutoLog(s.messages || []);
-  appendActivityLog(s.activity_log || []);
-
-  if (s.recording !== undefined && !recordPending) {
-    isRecording = s.recording;
-    recordCount = s.record_count || 0;
-    updateRecordUI();
-  }
-  if (!rulesLoaded && s.game_rules) {
-    document.getElementById('rules-textarea').value = s.game_rules;
-    rulesLoaded = true;
-  }
-
-  // Populate settings fields if empty
-  const ak = document.getElementById('cfg-api-key');
-  if (!ak.value && s.config_api_key) ak.value = s.config_api_key;
-  const md = document.getElementById('cfg-model');
-  if (!md.value && s.config_model) md.value = s.config_model;
-  const vm = document.getElementById('cfg-vision-model');
-  if (!vm.value && s.config_vision_model) vm.value = s.config_vision_model;
-  const bu = document.getElementById('cfg-base-url');
-  if (!bu.value && s.config_base_url) bu.value = s.config_base_url;
-}
-
-// Start polling
-pollState();
-pollTimer = setInterval(pollState, 2000);
-
-/* =================================================================
-   Remote Panel Logic - Video & Touch
-   WebSocket connections go to C backend on SCRCPY_PORT (18080)
-   ================================================================= */
-let deviceWidth = 0, deviceHeight = 0;
-let deviceCodec = null;
-let jmuxerInstance = null;
-let videoWs = null;
-let controlWs = null;
-let videoStarted = false;
-let videoRotationDeg = 0;
-let manualRotationLock = false;
-
-const isFirefoxBrowser = /Firefox\//.test(navigator.userAgent)
-  || typeof InstallTrigger !== 'undefined';
+const isFirefoxBrowser = /Firefox\//.test(navigator.userAgent) || typeof InstallTrigger !== 'undefined';
 const isChromiumBrowser = !isFirefoxBrowser
-  && (/(Chrome|Chromium|Edg)\//.test(navigator.userAgent)
-    || (!!window.chrome && !!window.chrome.runtime));
+  && (/(Chrome|Chromium|Edg)\//.test(navigator.userAgent) || (!!window.chrome && !!window.chrome.runtime));
 
-function toggleVideoRotation(e) {
-  if (e && e.shiftKey) {
-    manualRotationLock = false;
-    updateVideoOrientation();
-    return;
-  }
-  manualRotationLock = true;
-  videoRotationDeg = videoRotationDeg === 0 ? -90 : 0;
-  applyVideoLayout();
-}
-
-function updateVideoOrientation() {
-  if (manualRotationLock) return;
-  if (!isChromiumBrowser) {
-    if (videoRotationDeg !== 0) {
-      videoRotationDeg = 0;
-      applyVideoLayout();
-    }
-    return;
-  }
-  const video = document.getElementById('remote-video');
-  const vw = video.videoWidth, vh = video.videoHeight;
-  if (!vw || !vh || !deviceWidth || !deviceHeight) return;
-  const needsRotation = (deviceHeight > deviceWidth) !== (vh > vw);
-  const newDeg = needsRotation ? -90 : 0;
-  if (newDeg === videoRotationDeg) return;
-  videoRotationDeg = newDeg;
-  applyVideoLayout();
-}
-
-function applyVideoLayout() {
-  const video = document.getElementById('remote-video');
-  if (videoRotationDeg === 0) {
-    video.classList.remove('rotated');
-    video.style.transform = '';
-    video.style.width = '';
-    video.style.height = '';
-    return;
-  }
-  // After -90deg rotation, the video's width becomes visual height and vice versa.
-  // Size the video element so that AFTER rotation it fits within the wrapper.
-  const wrapper = document.getElementById('video-wrapper');
-  const wW = wrapper.clientWidth, wH = wrapper.clientHeight;
-  // Device aspect ratio (portrait: e.g. 520/1280)
-  const ar = deviceWidth / deviceHeight;
-  // After rotation, visual dimensions swap: visual width = deviceHeight side, visual height = deviceWidth side
-  // We need: rotated video (visually landscape) to fit in wrapper
-  // rotatedAR = deviceHeight / deviceWidth (e.g. 1280/520 = 2.46)
-  const rotatedAR = deviceHeight / deviceWidth;
-  let visW, visH;
-  if (rotatedAR > wW / wH) {
-    // Width-limited
-    visW = wW;
-    visH = wW / rotatedAR;
-  } else {
-    // Height-limited
-    visH = wH;
-    visW = wH * rotatedAR;
-  }
-  video.classList.add('rotated');
-  // Set video element size = swapped (because CSS rotate swaps visual axes)
-  video.style.width = visH + 'px';
-  video.style.height = visW + 'px';
-  video.style.transform = 'translate(-50%, -50%) rotate(-90deg)';
-}
-
-function initVideoWs() {
-  videoWs = new WebSocket(videoWsUrl);
-  videoWs.binaryType = 'arraybuffer';
-
-  videoWs.onopen = () => {
-    document.getElementById('remote-status').textContent = 'Video: Connected';
-    videoStarted = false;
-    document.getElementById('video-loading').style.display = 'flex';
-  };
-
-  videoWs.onmessage = (evt) => {
-    if (typeof evt.data === 'string') {
-      try {
-        const info = JSON.parse(evt.data);
-        deviceWidth = info.width || 0;
-        deviceHeight = info.height || 0;
-        const newCodec = info.codec || 'h264';
-        document.getElementById('remote-status').textContent =
-          'Video: ' + deviceWidth + 'x' + deviceHeight + ' [' + newCodec.toUpperCase() + ']';
-        resizeOverlay();
-        if (!jmuxerInstance || newCodec !== deviceCodec) {
-          deviceCodec = newCodec;
-          initJmuxer(newCodec);
-        }
-      } catch (e) { /* ignore */ }
-      return;
-    }
-    // Binary video data
-    if (!jmuxerInstance) return;
-    const data = new Uint8Array(evt.data);
-    try {
-      jmuxerInstance.feed({ video: data });
-    } catch (e) {
-      console.error('jmuxer feed error:', e);
-    }
-    const vid = document.getElementById('remote-video');
-    if (vid.paused) vid.play().catch(function () { });
-    if (vid.buffered.length > 0) {
-      const end = vid.buffered.end(vid.buffered.length - 1);
-      if (end - vid.currentTime > 0.5) {
-        vid.currentTime = end - 0.1;
-      }
-    }
-  };
-
-  videoWs.onclose = () => {
-    document.getElementById('remote-status').textContent = 'Video: Disconnected';
-    setTimeout(initVideoWs, 3000);
-  };
-
-  videoWs.onerror = () => {
-    videoWs.close();
-  };
-}
-
-function initControlWs() {
-  controlWs = new WebSocket(controlWsUrl);
-
-  controlWs.onclose = () => {
-    setTimeout(initControlWs, 3000);
-  };
-
-  controlWs.onerror = () => {
-    controlWs.close();
-  };
-}
-
-function sendKey(key) {
-  if (controlWs && controlWs.readyState === WebSocket.OPEN) {
-    controlWs.send(JSON.stringify({ type: 'key', key: key }));
-  }
-}
-
-/* ---------- Web Keyboard → Android Keycode Mapping ---------- */
 const KEY_TO_ANDROID = {
   'KeyA':29,'KeyB':30,'KeyC':31,'KeyD':32,'KeyE':33,'KeyF':34,'KeyG':35,
   'KeyH':36,'KeyI':37,'KeyJ':38,'KeyK':39,'KeyL':40,'KeyM':41,'KeyN':42,
@@ -1692,304 +196,404 @@ const KEY_TO_ANDROID = {
   'NumpadMultiply':155,'NumpadDivide':154,'NumpadDecimal':158,
 };
 
-let keyboardActive = false;
+const MIN_W = 160;
+const GRACE_MS = 10000;   // keep a card visible ("reconnecting…") this long before hiding on a drop
+const canvas = document.getElementById('canvas');
+const emptyEl = document.getElementById('empty-state');
+const cards = [];
+let ztop = 10;
 
-function buildMetastate(e) {
-  let m = 0;
-  if (e.shiftKey) m |= 1;   // AMETA_SHIFT_ON
-  if (e.ctrlKey) m |= 0x1000; // AMETA_CTRL_ON
-  if (e.altKey) m |= 2;     // AMETA_ALT_ON
-  if (e.metaKey) m |= 0x10000; // AMETA_META_ON
-  return m;
+// Show the "no devices" hint only when no card is currently online.
+function updateEmptyState() {
+  emptyEl.style.display = cards.some(c => c.online) ? 'none' : 'flex';
+}
+let keyboardCard = null;   // card currently receiving physical keyboard input
+let activeCard = null;     // last-focused card (visual highlight)
+
+function maxCardWidth() { return Math.max(MIN_W, window.innerWidth - 24); }
+function el(tag, cls) { const e = document.createElement(tag); if (cls) e.className = cls; return e; }
+
+function setActive(card) {
+  if (activeCard === card) return;
+  if (activeCard) activeCard.root.classList.remove('active');
+  activeCard = card;
+  if (card) card.root.classList.add('active');
+}
+function bringToFront(card) { card.root.style.zIndex = ++ztop; setActive(card); }
+
+// Arrange all not-yet-user-moved cards in a centered horizontal row.
+function layoutCards() {
+  const auto = cards.filter(c => !c.userSized && c.root.offsetWidth > 0);
+  if (!auto.length) return;
+  const gap = 24;
+  let total = auto.reduce((s, c) => s + c.root.offsetWidth, 0) + gap * (auto.length - 1);
+  let x = Math.max(12, (window.innerWidth - total) / 2);
+  for (const c of auto) {
+    const top = Math.max(8, (window.innerHeight - c.root.offsetHeight) / 2);
+    c.setPos(x, top);
+    x += c.root.offsetWidth + gap;
+  }
 }
 
-function handleWebKeyboard(e) {
-  if (!keyboardActive) return;
-  // Don't capture if typing in an input/textarea
-  const tag = (e.target || e.srcElement).tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-  if (!controlWs || controlWs.readyState !== WebSocket.OPEN) return;
+/* ----------------------------------------------------------------
+   PhoneCard: one device — DOM + websockets + video + input
+   ---------------------------------------------------------------- */
+function PhoneCard(device) {
+  const self = {
+    device,
+    videoWs: null, controlWs: null, jmuxer: null,
+    deviceWidth: 0, deviceHeight: 0, deviceCodec: null,
+    videoStarted: false, rot: 0, manualLock: false,
+    userSized: false, kbActive: false, jmuxerRetry: 0,
+    online: false,   // true only while a live stream is flowing (card visible)
+    hideTimer: null, // pending "hide after grace period" timer during a drop
+  };
 
-  const akeycode = KEY_TO_ANDROID[e.code];
-  if (akeycode !== undefined) {
-    e.preventDefault();
-    const action = e.type === 'keydown' ? 'down' : 'up';
-    controlWs.send(JSON.stringify({
-      type: 'keyevent', action: action,
-      keycode: akeycode, metastate: buildMetastate(e)
-    }));
-    return;
+  // --- DOM ---
+  const root = el('div', 'phone-card');
+  const header = el('div', 'card-header');
+  const grip = el('span', 'grip'); grip.textContent = '⠿';
+  const label = el('span', 'card-label'); label.textContent = device.label;
+  const status = el('span', 'card-status'); status.textContent = 'Not connected';
+  header.append(grip, label, status);
+
+  const wrapper = el('div', 'video-wrapper');
+  const video = el('video', 'remote-video');
+  video.autoplay = true; video.muted = true; video.playsInline = true;
+  video.setAttribute('playsinline', '');
+  const overlay = el('canvas', 'touch-overlay');
+  const loading = el('div', 'video-loading');
+  const spin = el('div', 'spinner'); const ltext = el('div'); ltext.textContent = 'Loading video stream...';
+  loading.append(spin, ltext);
+  wrapper.append(video, overlay, loading);
+
+  const bar = el('div', 'btn-bar');
+  function mkBtn(text, fn, title) { const b = el('button'); b.textContent = text; if (title) b.title = title; b.addEventListener('click', fn); return b; }
+  bar.append(
+    mkBtn('Back', () => self.sendKey('back')),
+    mkBtn('Home', () => self.sendKey('home')),
+    mkBtn('Recents', () => self.sendKey('app_switch')),
+    mkBtn('Rotate', (e) => self.toggleRotation(e), 'Click: rotate 90°, Shift+Click: auto'),
+    mkBtn('Vol+', () => self.sendKey('volume_up')),
+    mkBtn('Vol-', () => self.sendKey('volume_down')),
+    mkBtn('Power', () => self.sendKey('power')),
+  );
+  const kbBtn = mkBtn('KB: OFF', () => self.toggleKeyboard(), 'Toggle keyboard input to this device');
+  bar.append(kbBtn);
+
+  const handle = el('div', 'resize-handle'); handle.title = 'Drag to resize';
+  root.append(header, wrapper, bar, handle);
+  root.style.display = 'none';   // hidden until a live stream arrives
+  canvas.appendChild(root);
+
+  self.root = root; self.video = video; self.wrapper = wrapper; self.overlay = overlay;
+  self.loading = loading; self.status = status; self.kbBtn = kbBtn;
+
+  const setStatus = (m) => { status.textContent = m; };
+  // Overlay shown over the video: spinning "loading" while connecting,
+  // or a static "disconnected" notice while the device/backend is unreachable.
+  function setOverlay(msg, spinning) {
+    ltext.textContent = msg;
+    spin.style.display = spinning ? '' : 'none';
+    loading.style.display = 'flex';
   }
 
-  // For printable characters not in map, use text injection on keydown
-  if (e.type === 'keydown' && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
-    e.preventDefault();
-    controlWs.send(JSON.stringify({ type: 'text', text: e.key }));
+  /* ---- sizing / aspect ---- */
+  function visualAspectRatio() {
+    let vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) { vw = self.deviceWidth; vh = self.deviceHeight; }
+    if (!vw || !vh) return null;
+    return (self.rot !== 0) ? (vh / vw) : (vw / vh);  // -90° swaps visual w/h
   }
-}
-
-document.addEventListener('keydown', handleWebKeyboard);
-document.addEventListener('keyup', handleWebKeyboard);
-
-function toggleKeyboard() {
-  keyboardActive = !keyboardActive;
-  const btn = document.getElementById('kb-toggle-btn');
-  btn.textContent = keyboardActive ? 'KB: ON' : 'KB: OFF';
-  btn.style.background = keyboardActive ? 'var(--accent)' : '';
-  btn.style.color = keyboardActive ? '#fff' : '';
-}
-
-async function sendTouch(action, clientX, clientY) {
-  const dbg = document.getElementById('remote-status');
-  if (!controlWs || controlWs.readyState !== WebSocket.OPEN) {
-    dbg.textContent = 'Touch: WS not open';
-    return;
+  function applyAspect() {
+    const ar = visualAspectRatio();
+    if (ar) wrapper.style.aspectRatio = String(ar);
   }
+  function resizeOverlay() { overlay.width = wrapper.clientWidth; overlay.height = wrapper.clientHeight; }
 
-  const video = document.getElementById('remote-video');
-  const vw = (videoRotationDeg !== 0) ? deviceWidth : (video.videoWidth || deviceWidth);
-  const vh = (videoRotationDeg !== 0) ? deviceHeight : (video.videoHeight || deviceHeight);
-  if (!vw || !vh) {
-    dbg.textContent = 'Touch: no dimensions';
-    return;
-  }
+  self.setWidth = function (w) {
+    const clamped = Math.max(MIN_W, Math.min(w, maxCardWidth()));
+    root.style.width = clamped + 'px';
+    requestAnimationFrame(() => { resizeOverlay(); if (self.rot !== 0) applyVideoLayout(); });
+  };
+  self.setPos = function (left, top) {
+    const w = root.offsetWidth;
+    left = Math.max(-(w - 90), Math.min(left, window.innerWidth - 90));
+    top = Math.max(0, Math.min(top, window.innerHeight - 38));
+    root.style.left = left + 'px';
+    root.style.top = top + 'px';
+  };
+  self.fitToViewport = function () {
+    const ar = visualAspectRatio();
+    if (!ar) return;
+    const headerH = header.offsetHeight || 36;
+    const barH = bar.offsetHeight || 56;
+    const budgetH = window.innerHeight * 0.9 - headerH - barH;
+    let width = budgetH * ar;
+    width = Math.min(width, window.innerWidth * 0.46, maxCardWidth());
+    width = Math.max(MIN_W, width);
+    self.setWidth(width);
+  };
 
-  const videoRect = video.getBoundingClientRect();
-  const relX = clientX - videoRect.left;
-  const relY = clientY - videoRect.top;
-  const normX = Math.max(0, Math.min(1, relX / videoRect.width));
-  const normY = Math.max(0, Math.min(1, relY / videoRect.height));
-  const x = Math.min(Math.round(normX * vw), vw - 1);
-  const y = Math.min(Math.round(normY * vh), vh - 1);
-
-  // During recording: screenshot FIRST, then touch. If screenshot fails, ignore touch.
-  if (isRecording && action === 'down') {
-    if (recordCapturing) {
-      dbg.textContent = 'Recording: previous capture in progress...';
+  function applyVideoLayout() {
+    if (self.rot === 0) {
+      video.classList.remove('rotated');
+      video.style.transform = ''; video.style.width = ''; video.style.height = '';
       return;
     }
-    recordCapturing = true;
-    dbg.textContent = 'Recording: capturing frame...';
-    try {
-      // Capture current video frame via canvas
-      const frameBlob = await captureVideoFrame();
-      if (!frameBlob) {
-        dbg.textContent = 'Frame capture failed — try again.';
-        recordCapturing = false;
-        return;
-      }
-      recordCount++;
-      const idx = recordCount;
-      // Upload frame + coordinates
-      const form = new FormData();
-      form.append('frame', frameBlob, idx.toString().padStart(4, '0') + '.jpg');
-      form.append('x', x);
-      form.append('y', y);
-      form.append('index', idx);
-      const resp = await fetch('/api/record/capture', { method: 'POST', body: form });
-      const r = await resp.json();
-      if (r && r.ok) {
-        // Frame saved — now send the actual touch (down + up = tap)
-        controlWs.send(JSON.stringify({ type: 'touch', action: 'down', x: x, y: y, w: vw, h: vh }));
-        controlWs.send(JSON.stringify({ type: 'touch', action: 'up', x: x, y: y, w: vw, h: vh }));
-        addRecordLogEntry(x, y, vw, vh, idx);
-        updateRecordUI();
-        dbg.textContent = 'Recorded #' + idx + ': ' + x + ',' + y;
+    const wW = wrapper.clientWidth, wH = wrapper.clientHeight;
+    video.classList.add('rotated');
+    video.style.width = wH + 'px';
+    video.style.height = wW + 'px';
+    video.style.transform = 'translate(-50%, -50%) rotate(-90deg)';
+  }
+
+  function updateOrientation() {
+    if (!self.manualLock) {
+      if (!isChromiumBrowser) {
+        self.rot = 0;
       } else {
-        recordCount--;
-        dbg.textContent = 'Save failed — touch ignored. Try again.';
-      }
-    } catch (e) {
-      recordCount--;
-      dbg.textContent = 'Capture failed — touch ignored. Try again.';
-    }
-    recordCapturing = false;
-    return;
-  }
-
-  const msg = { type: 'touch', action: action, x: x, y: y, w: vw, h: vh };
-  controlWs.send(JSON.stringify(msg));
-  dbg.textContent = 'Touch: ' + action + ' ' + x + ',' + y + ' (' + vw + 'x' + vh + ')';
-}
-
-function captureVideoFrame() {
-  return new Promise(function (resolve) {
-    const video = document.getElementById('remote-video');
-    if (!video || video.readyState < 2) { resolve(null); return; }
-    const c = document.createElement('canvas');
-    c.width = video.videoWidth;
-    c.height = video.videoHeight;
-    c.getContext('2d').drawImage(video, 0, 0);
-    c.toBlob(function (blob) { resolve(blob); }, 'image/jpeg', 0.9);
-  });
-}
-
-function resizeOverlay() {
-  const canvas = document.getElementById('touch-overlay');
-  const wrapper = document.getElementById('video-wrapper');
-  canvas.width = wrapper.clientWidth;
-  canvas.height = wrapper.clientHeight;
-}
-
-// Touch/mouse events on canvas overlay
-(function () {
-  const overlay = document.getElementById('touch-overlay');
-  let isDown = false;
-
-  overlay.addEventListener('contextmenu', (e) => { e.preventDefault(); });
-  overlay.addEventListener('mousedown', async (e) => {
-    e.preventDefault();
-    if (e.button === 2) { sendKey('back'); return; }
-    isDown = true;
-    await sendTouch('down', e.clientX, e.clientY);
-  });
-  overlay.addEventListener('mousemove', (e) => {
-    if (!isDown || recordCapturing) return;
-    e.preventDefault();
-    sendTouch('move', e.clientX, e.clientY);
-  });
-  overlay.addEventListener('mouseup', (e) => {
-    if (!isDown) return;
-    isDown = false;
-    if (recordCapturing) return;
-    e.preventDefault();
-    sendTouch('up', e.clientX, e.clientY);
-  });
-  overlay.addEventListener('mouseleave', (e) => {
-    if (!isDown) return;
-    isDown = false;
-    if (recordCapturing) return;
-    sendTouch('up', e.clientX, e.clientY);
-  });
-
-  overlay.addEventListener('touchstart', async (e) => {
-    e.preventDefault();
-    const t = e.touches[0];
-    isDown = true;
-    await sendTouch('down', t.clientX, t.clientY);
-  });
-  overlay.addEventListener('touchmove', (e) => {
-    if (recordCapturing) return;
-    e.preventDefault();
-    const t = e.touches[0];
-    sendTouch('move', t.clientX, t.clientY);
-  });
-  overlay.addEventListener('touchend', (e) => {
-    e.preventDefault();
-    isDown = false;
-    if (recordCapturing) return;
-    const t = e.changedTouches[0];
-    sendTouch('up', t.clientX, t.clientY);
-  });
-  overlay.addEventListener('touchcancel', (e) => {
-    e.preventDefault();
-    isDown = false;
-    const t = e.changedTouches[0];
-    sendTouch('up', t.clientX, t.clientY);
-  });
-
-  window.addEventListener('resize', function () {
-    resizeOverlay();
-    if (videoRotationDeg !== 0) applyVideoLayout();
-  });
-})();
-
-function initJmuxer(codec) {
-  const statusEl = document.getElementById('remote-status');
-  if (typeof JMuxer === 'undefined') {
-    statusEl.textContent = 'Error: jmuxer.js not loaded';
-    return;
-  }
-
-  if (typeof MediaSource === 'undefined') {
-    statusEl.textContent = 'Error: MediaSource API not supported';
-    return;
-  }
-
-  let mseCodec, jmuxerVideoCodec;
-  if (codec === 'h265') {
-    mseCodec = 'video/mp4; codecs="hev1.1.6.L93.B0"';
-    jmuxerVideoCodec = 'H265';
-  } else {
-    mseCodec = 'video/mp4; codecs="avc1.640028"';
-    jmuxerVideoCodec = undefined;
-  }
-
-  if (!MediaSource.isTypeSupported(mseCodec)) {
-    statusEl.textContent = 'Error: ' + codec.toUpperCase() + ' codec not supported by browser';
-    console.error('MSE codec not supported:', mseCodec);
-    return;
-  }
-
-  if (jmuxerInstance) {
-    try { jmuxerInstance.destroy(); } catch (e) { /* ignore */ }
-    jmuxerInstance = null;
-  }
-
-  try {
-    const opts = {
-      node: 'remote-video',
-      mode: 'video',
-      flushingTime: 100,
-      fps: 30,
-      debug: false,
-      onReady: function () {
-        statusEl.textContent = 'JMuxer ready [' + codec.toUpperCase() + '], waiting for video...';
-        window._jmuxerRetryCount = 0;
-      },
-      onError: function (err) {
-        console.error('JMuxer error:', err);
-        const errName = err && (err.name || '');
-        const errMsg = err && (err.error || err.message || '');
-        statusEl.textContent = 'JMuxer error: ' + (errMsg || err);
-        // Auto-recover from buffer errors (e.g. resolution change on app switch)
-        // but limit retries to avoid infinite loop
-        if (errName === 'InvalidStateError' || errMsg === 'buffer error') {
-          if (!window._jmuxerRetryCount) window._jmuxerRetryCount = 0;
-          window._jmuxerRetryCount++;
-          if (window._jmuxerRetryCount <= 3) {
-            console.warn('JMuxer buffer error, reinit attempt', window._jmuxerRetryCount);
-            statusEl.textContent = 'Reinitializing video...';
-            setTimeout(function () {
-              initJmuxer(deviceCodec || 'h264');
-            }, 1000);
-          } else {
-            console.error('JMuxer reinit failed 3 times, reconnecting WebSocket...');
-            statusEl.textContent = 'Reconnecting video stream...';
-            window._jmuxerRetryCount = 0;
-            if (videoWs) videoWs.close();
-          }
+        const vw = video.videoWidth, vh = video.videoHeight;
+        if (vw && vh && self.deviceWidth && self.deviceHeight) {
+          const needs = (self.deviceHeight > self.deviceWidth) !== (vh > vw);
+          self.rot = needs ? -90 : 0;
         }
       }
-    };
-    if (jmuxerVideoCodec) {
-      opts.videoCodec = jmuxerVideoCodec;
     }
-    jmuxerInstance = new JMuxer(opts);
-    statusEl.textContent = 'JMuxer initialized [' + codec.toUpperCase() + '], connecting...';
-  } catch (e) {
-    statusEl.textContent = 'JMuxer init error: ' + e.message;
+    applyAspect(); applyVideoLayout(); resizeOverlay();
   }
-}
 
-// Initialize WebSockets
-(function () {
-  const remoteVid = document.getElementById('remote-video');
-  remoteVid.addEventListener('timeupdate', function () {
-    if (!videoStarted && remoteVid.currentTime > 0) {
-      videoStarted = true;
-      document.getElementById('video-loading').style.display = 'none';
-      updateVideoOrientation();
+  self.toggleRotation = function (e) {
+    if (e && e.shiftKey) { self.manualLock = false; updateOrientation(); return; }
+    self.manualLock = true;
+    self.rot = self.rot === 0 ? -90 : 0;
+    applyAspect(); applyVideoLayout(); resizeOverlay();
+  };
+
+  /* ---- input ---- */
+  self.sendKey = function (key) {
+    if (self.controlWs && self.controlWs.readyState === WebSocket.OPEN)
+      self.controlWs.send(JSON.stringify({ type: 'key', key }));
+  };
+  self.sendTouch = function (action, clientX, clientY) {
+    if (!self.controlWs || self.controlWs.readyState !== WebSocket.OPEN) { setStatus('Touch: WS not open'); return; }
+    const vw = (self.rot !== 0) ? self.deviceWidth : (video.videoWidth || self.deviceWidth);
+    const vh = (self.rot !== 0) ? self.deviceHeight : (video.videoHeight || self.deviceHeight);
+    if (!vw || !vh) { setStatus('Touch: no dimensions'); return; }
+    const r = video.getBoundingClientRect();
+    const nx = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+    const ny = Math.max(0, Math.min(1, (clientY - r.top) / r.height));
+    const x = Math.min(Math.round(nx * vw), vw - 1);
+    const y = Math.min(Math.round(ny * vh), vh - 1);
+    self.controlWs.send(JSON.stringify({ type: 'touch', action, x, y, w: vw, h: vh }));
+    setStatus(action + ' ' + x + ',' + y + ' (' + vw + 'x' + vh + ')');
+  };
+  self.handleKey = function (e) {
+    if (!self.kbActive) return;
+    const tag = (e.target || e.srcElement).tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (!self.controlWs || self.controlWs.readyState !== WebSocket.OPEN) return;
+    const code = KEY_TO_ANDROID[e.code];
+    if (code !== undefined) {
+      e.preventDefault();
+      let m = 0;
+      if (e.shiftKey) m |= 1; if (e.ctrlKey) m |= 0x1000; if (e.altKey) m |= 2; if (e.metaKey) m |= 0x10000;
+      self.controlWs.send(JSON.stringify({ type: 'keyevent', action: e.type === 'keydown' ? 'down' : 'up', keycode: code, metastate: m }));
+      return;
     }
-  });
-  remoteVid.addEventListener('resize', function () {
-    updateVideoOrientation();
+    if (e.type === 'keydown' && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      self.controlWs.send(JSON.stringify({ type: 'text', text: e.key }));
+    }
+  };
+  self.toggleKeyboard = function () {
+    self.kbActive = !self.kbActive;
+    if (self.kbActive) {
+      // exclusive: turn others off
+      for (const c of cards) if (c !== self && c.kbActive) { c.kbActive = false; c.kbBtn.textContent = 'KB: OFF'; c.kbBtn.classList.remove('kb-on'); }
+      keyboardCard = self;
+    } else if (keyboardCard === self) {
+      keyboardCard = null;
+    }
+    kbBtn.textContent = self.kbActive ? 'KB: ON' : 'KB: OFF';
+    kbBtn.classList.toggle('kb-on', self.kbActive);
+  };
+
+  /* ---- websockets ---- */
+  function initVideoWs() {
+    self.videoWs = new WebSocket(wsUrl(device.video));
+    self.videoWs.binaryType = 'arraybuffer';
+    self.videoWs.onopen = () => { setStatus('Connected'); self.videoStarted = false; setOverlay('Loading video stream…', true); };
+    self.videoWs.onmessage = (evt) => {
+      if (typeof evt.data === 'string') {
+        try {
+          const info = JSON.parse(evt.data);
+          self.deviceWidth = info.width || 0;
+          self.deviceHeight = info.height || 0;
+          const codec = info.codec || 'h264';
+          setStatus(self.deviceWidth + 'x' + self.deviceHeight + ' [' + codec.toUpperCase() + ']');
+          if (self.hideTimer) { clearTimeout(self.hideTimer); self.hideTimer = null; }  // reconnected in time
+          if (!self.online) {                 // device came online → reveal card
+            self.online = true;
+            root.style.display = '';
+            updateEmptyState();
+            if (!self.userSized) self.fitToViewport();
+            layoutCards();
+          }
+          applyAspect(); resizeOverlay();
+          if (!self.jmuxer || codec !== self.deviceCodec) { self.deviceCodec = codec; initJmuxer(codec); }
+        } catch (e) { /* ignore */ }
+        return;
+      }
+      if (!self.jmuxer) return;
+      try { self.jmuxer.feed({ video: new Uint8Array(evt.data) }); } catch (e) { console.error('jmuxer feed', e); }
+      if (video.paused) video.play().catch(() => {});
+      if (video.buffered.length > 0) {
+        markVideoStarted();   // first decodable data → drop the "Loading…" overlay even on a static screen
+        const end = video.buffered.end(video.buffered.length - 1);
+        if (end - video.currentTime > 0.5) video.currentTime = end - 0.1;
+      }
+    };
+    self.videoWs.onclose = () => {
+      self.videoStarted = false;
+      if (self.online) {
+        // Brief drop: keep the card up showing "reconnecting…" and only hide it
+        // if the stream stays down past GRACE_MS (avoids flicker on a flaky link).
+        setOverlay('🔌 ' + device.label + ' 재연결 중…', true);
+        if (!self.hideTimer) {
+          self.hideTimer = setTimeout(() => {
+            self.hideTimer = null;
+            self.online = false;
+            root.style.display = 'none';
+            updateEmptyState();
+            layoutCards();
+          }, GRACE_MS);
+        }
+      } else {
+        setOverlay('Loading video stream…', true);  // reset for next connect
+      }
+      setTimeout(initVideoWs, 3000);     // keep probing; card reappears when it streams again
+    };
+    self.videoWs.onerror = () => { self.videoWs.close(); };
+  }
+  function initControlWs() {
+    self.controlWs = new WebSocket(wsUrl(device.control));
+    self.controlWs.onclose = () => { setTimeout(initControlWs, 3000); };
+    self.controlWs.onerror = () => { self.controlWs.close(); };
+  }
+  function initJmuxer(codec) {
+    if (typeof JMuxer === 'undefined') { setStatus('Error: jmuxer not loaded'); return; }
+    if (typeof MediaSource === 'undefined') { setStatus('Error: no MediaSource'); return; }
+    let mseCodec, jVideoCodec;
+    if (codec === 'h265') { mseCodec = 'video/mp4; codecs="hev1.1.6.L93.B0"'; jVideoCodec = 'H265'; }
+    else { mseCodec = 'video/mp4; codecs="avc1.640028"'; jVideoCodec = undefined; }
+    if (!MediaSource.isTypeSupported(mseCodec)) { setStatus('Error: ' + codec.toUpperCase() + ' unsupported'); return; }
+    if (self.jmuxer) { try { self.jmuxer.destroy(); } catch (e) {} self.jmuxer = null; }
+    try {
+      const opts = {
+        node: video, mode: 'video', flushingTime: 100, fps: 30, debug: false,
+        onReady: () => { setStatus('Ready [' + codec.toUpperCase() + ']'); self.jmuxerRetry = 0; },
+        onError: (err) => {
+          const name = err && (err.name || ''); const msg = err && (err.error || err.message || '');
+          setStatus('Video error');
+          if (name === 'InvalidStateError' || msg === 'buffer error') {
+            self.jmuxerRetry++;
+            if (self.jmuxerRetry <= 3) { setStatus('Reinitializing...'); setTimeout(() => initJmuxer(self.deviceCodec || 'h264'), 1000); }
+            else { self.jmuxerRetry = 0; setStatus('Reconnecting...'); if (self.videoWs) self.videoWs.close(); }
+          }
+        },
+      };
+      if (jVideoCodec) opts.videoCodec = jVideoCodec;
+      self.jmuxer = new JMuxer(opts);
+    } catch (e) { setStatus('jmuxer init error'); }
+  }
+
+  /* ---- drag (header) ---- */
+  (function () {
+    let dragging = false, offX = 0, offY = 0;
+    header.addEventListener('pointerdown', (e) => {
+      dragging = true; self.userSized = true; bringToFront(self);
+      const r = root.getBoundingClientRect(); offX = e.clientX - r.left; offY = e.clientY - r.top;
+      header.setPointerCapture(e.pointerId); e.preventDefault();
+    });
+    header.addEventListener('pointermove', (e) => { if (dragging) self.setPos(e.clientX - offX, e.clientY - offY); });
+    const end = (e) => { if (!dragging) return; dragging = false; try { header.releasePointerCapture(e.pointerId); } catch (_) {} };
+    header.addEventListener('pointerup', end);
+    header.addEventListener('pointercancel', end);
+  })();
+
+  /* ---- resize (corner) ---- */
+  (function () {
+    let resizing = false, startX = 0, startW = 0;
+    handle.addEventListener('pointerdown', (e) => {
+      resizing = true; self.userSized = true; bringToFront(self);
+      startX = e.clientX; startW = root.offsetWidth;
+      handle.setPointerCapture(e.pointerId); e.preventDefault(); e.stopPropagation();
+    });
+    handle.addEventListener('pointermove', (e) => { if (resizing) self.setWidth(startW + (e.clientX - startX)); });
+    const end = (e) => { if (!resizing) return; resizing = false; try { handle.releasePointerCapture(e.pointerId); } catch (_) {} };
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+  })();
+
+  /* ---- touch overlay ---- */
+  (function () {
+    let isDown = false;
+    overlay.addEventListener('contextmenu', (e) => e.preventDefault());
+    overlay.addEventListener('mousedown', (e) => {
+      e.preventDefault(); bringToFront(self);
+      if (e.button === 2) { self.sendKey('back'); return; }
+      isDown = true; self.sendTouch('down', e.clientX, e.clientY);
+    });
+    overlay.addEventListener('mousemove', (e) => { if (!isDown) return; e.preventDefault(); self.sendTouch('move', e.clientX, e.clientY); });
+    overlay.addEventListener('mouseup', (e) => { if (!isDown) return; isDown = false; e.preventDefault(); self.sendTouch('up', e.clientX, e.clientY); });
+    overlay.addEventListener('mouseleave', (e) => { if (!isDown) return; isDown = false; self.sendTouch('up', e.clientX, e.clientY); });
+    overlay.addEventListener('touchstart', (e) => { e.preventDefault(); bringToFront(self); const t = e.touches[0]; isDown = true; self.sendTouch('down', t.clientX, t.clientY); });
+    overlay.addEventListener('touchmove', (e) => { e.preventDefault(); const t = e.touches[0]; self.sendTouch('move', t.clientX, t.clientY); });
+    overlay.addEventListener('touchend', (e) => { e.preventDefault(); isDown = false; const t = e.changedTouches[0]; self.sendTouch('up', t.clientX, t.clientY); });
+    overlay.addEventListener('touchcancel', (e) => { e.preventDefault(); isDown = false; const t = e.changedTouches[0]; self.sendTouch('up', t.clientX, t.clientY); });
+  })();
+
+  /* ---- boot ---- */
+  // Hide the "Loading…" overlay as soon as the first frame is renderable.
+  // A static/dozing screen sends only one cached keyframe (no timeupdate ticks),
+  // so trigger on loadeddata/canplay and the first buffered data too — otherwise the
+  // card stays stuck on "Loading…" until the user nudges the device (e.g. Home).
+  function markVideoStarted() {
+    if (self.videoStarted) return;
+    self.videoStarted = true;
+    loading.style.display = 'none';
+    updateOrientation();
+    if (!self.userSized) { self.fitToViewport(); layoutCards(); }
+  }
+  video.addEventListener('timeupdate', () => { if (video.currentTime > 0) markVideoStarted(); });
+  video.addEventListener('loadeddata', markVideoStarted);
+  video.addEventListener('canplay', markVideoStarted);
+  video.addEventListener('resize', () => {
+    updateOrientation();
+    if (!self.userSized) { self.fitToViewport(); layoutCards(); }
   });
 
+  // initial width before first frame
+  self.setWidth(Math.min(320, Math.round(window.innerWidth * 0.42), maxCardWidth()));
   initVideoWs();
   initControlWs();
   resizeOverlay();
-})();
+  return self;
+}
+
+/* ---- global wiring ---- */
+DEVICES.forEach((d) => cards.push(PhoneCard(d)));
+updateEmptyState();   // all cards start hidden until they stream
+requestAnimationFrame(layoutCards);
+
+document.addEventListener('keydown', (e) => { if (keyboardCard) keyboardCard.handleKey(e); });
+document.addEventListener('keyup', (e) => { if (keyboardCard) keyboardCard.handleKey(e); });
+
+window.addEventListener('resize', () => {
+  for (const c of cards) { c.overlay.width = c.wrapper.clientWidth; c.overlay.height = c.wrapper.clientHeight; }
+  layoutCards();
+});
 </script>
 </body>
 </html>
