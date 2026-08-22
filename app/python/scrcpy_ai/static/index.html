@@ -167,6 +167,7 @@ const DEVICES = [
   { label: 'Z-Flip4', video: '/ws/video',  control: '/ws/control'  },
   { label: 'Redroid-Game', video: '/ws2/video', control: '/ws2/control' },
   { label: 'Redroid', video: '/ws3/video', control: '/ws3/control' },
+  { label: 'Velvet',  video: '/ws4/video', control: '/ws4/control' },
 ];
 
 const isFirefoxBrowser = /Firefox\//.test(navigator.userAgent) || typeof InstallTrigger !== 'undefined';
@@ -451,7 +452,14 @@ function PhoneCard(device) {
       if (video.buffered.length > 0) {
         markVideoStarted();   // first decodable data → drop the "Loading…" overlay even on a static screen
         const end = video.buffered.end(video.buffered.length - 1);
-        if (end - video.currentTime > 0.5) video.currentTime = end - 0.1;
+        const lag = end - video.currentTime;
+        // Keep latency low WITHOUT mid-GOP seeks: seeking to a non-keyframe position
+        // corrupts the H264 decode (macroblock garbage) until the next keyframe. Instead
+        // nudge playbackRate to absorb drift/jitter smoothly; only hard-seek if we're
+        // hopelessly behind (e.g. after a long stall), where a brief resync is acceptable.
+        if (lag > 4) { video.currentTime = end - 0.3; video.playbackRate = 1.0; }
+        else if (lag > 0.35) { video.playbackRate = 1.12; }
+        else if (lag < 0.12) { video.playbackRate = 1.0; }
       }
     };
     self.videoWs.onclose = () => {
