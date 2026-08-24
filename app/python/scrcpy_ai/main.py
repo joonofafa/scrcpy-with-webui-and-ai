@@ -172,24 +172,6 @@ async def ws3_control(ws: WebSocket):
     await _ws_proxy(ws, "/ws/control", port=config.scrcpy_port + 2)
 
 
-# Device 4 (LG Velvet) — scrcpy-web2 relocated to port 18083 (18081/18082 are
-# used by the externally-managed redroid/game backends).
-@app.websocket("/ws4/video")
-async def ws4_video(ws: WebSocket):
-    if not _ws_authorized(ws):
-        await ws.close(code=1008)
-        return
-    await _ws_proxy(ws, "/ws/video", port=config.scrcpy_port + 3)
-
-
-@app.websocket("/ws4/control")
-async def ws4_control(ws: WebSocket):
-    if not _ws_authorized(ws):
-        await ws.close(code=1008)
-        return
-    await _ws_proxy(ws, "/ws/control", port=config.scrcpy_port + 3)
-
-
 # Register API routes
 from scrcpy_ai.web.routes import router  # noqa: E402
 app.include_router(router)

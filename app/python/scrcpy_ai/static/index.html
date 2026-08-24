@@ -165,9 +165,8 @@ function wsUrl(path) { return `${wsProto}//${window.location.host}${path}`; }
 // One entry per device. Add more here + a matching scrcpy-webN service & Apache route.
 const DEVICES = [
   { label: 'Z-Flip4', video: '/ws/video',  control: '/ws/control'  },
-  { label: 'Redroid-Game', video: '/ws2/video', control: '/ws2/control' },
-  { label: 'Redroid', video: '/ws3/video', control: '/ws3/control' },
-  { label: 'Velvet',  video: '/ws4/video', control: '/ws4/control' },
+  { label: 'Redroid-Work', video: '/ws2/video', control: '/ws2/control' },
+  { label: 'Redroid-Game', video: '/ws3/video', control: '/ws3/control' },
 ];
 
 const isFirefoxBrowser = /Firefox\//.test(navigator.userAgent) || typeof InstallTrigger !== 'undefined';
@@ -447,7 +446,7 @@ function PhoneCard(device) {
         return;
       }
       if (!self.jmuxer) return;
-      try { self.jmuxer.feed({ video: new Uint8Array(evt.data) }); } catch (e) { console.error('jmuxer feed', e); }
+      try { self.jmuxer.feed({ video: patchSpsLevel(new Uint8Array(evt.data)) }); } catch (e) { console.error('jmuxer feed', e); }
       if (video.paused) video.play().catch(() => {});
       if (video.buffered.length > 0) {
         markVideoStarted();   // first decodable data → drop the "Loading…" overlay even on a static screen
@@ -489,6 +488,23 @@ function PhoneCard(device) {
     self.controlWs.onclose = () => { setTimeout(initControlWs, 3000); };
     self.controlWs.onerror = () => { self.controlWs.close(); };
   }
+  // Some device encoders (e.g. LG Velvet) write a bogus SPS level_idc (Level 1.0)
+  // for a large frame; strict browser H264 decoders then under-allocate their
+  // buffers and render macroblock garbage (ffmpeg is tolerant, so the bitstream is
+  // otherwise fine). Bump level_idc in every SPS NAL to 4.1 so the browser sizes
+  // its decode buffers correctly. Only raises the level, never lowers a good one.
+  function patchSpsLevel(b) {
+    const n = b.length;
+    for (let i = 0; i + 4 < n; i++) {
+      let hdr = -1;
+      if (b[i] === 0 && b[i + 1] === 0 && b[i + 2] === 1) hdr = i + 3;
+      else if (b[i] === 0 && b[i + 1] === 0 && b[i + 2] === 0 && b[i + 3] === 1) hdr = i + 4;
+      if (hdr < 0 || hdr + 3 >= n) continue;
+      if ((b[hdr] & 0x1f) === 7 && b[hdr + 3] < 0x29) b[hdr + 3] = 0x29;  // SPS → level_idc = 4.1
+    }
+    return b;
+  }
+
   function initJmuxer(codec) {
     if (typeof JMuxer === 'undefined') { setStatus('Error: jmuxer not loaded'); return; }
     if (typeof MediaSource === 'undefined') { setStatus('Error: no MediaSource'); return; }
