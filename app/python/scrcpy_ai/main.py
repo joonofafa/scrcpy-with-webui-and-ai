@@ -155,7 +155,7 @@ async def ws2_control(ws: WebSocket):
     await _ws_proxy(ws, "/ws/control", port=config.scrcpy_port + 1)
 
 
-# Device 3 (redroid emulator) — scrcpy-web3 on port 18082
+# Device 3 (Redroid-Kakao) — scrcpy-kakao on port 18082
 @app.websocket("/ws3/video")
 async def ws3_video(ws: WebSocket):
     if not _ws_authorized(ws):
@@ -170,6 +170,23 @@ async def ws3_control(ws: WebSocket):
         await ws.close(code=1008)
         return
     await _ws_proxy(ws, "/ws/control", port=config.scrcpy_port + 2)
+
+
+# Device 4 (LG Velvet) — scrcpy-web2 on port 18083
+@app.websocket("/ws4/video")
+async def ws4_video(ws: WebSocket):
+    if not _ws_authorized(ws):
+        await ws.close(code=1008)
+        return
+    await _ws_proxy(ws, "/ws/video", port=config.scrcpy_port + 3)
+
+
+@app.websocket("/ws4/control")
+async def ws4_control(ws: WebSocket):
+    if not _ws_authorized(ws):
+        await ws.close(code=1008)
+        return
+    await _ws_proxy(ws, "/ws/control", port=config.scrcpy_port + 3)
 
 
 # Register API routes

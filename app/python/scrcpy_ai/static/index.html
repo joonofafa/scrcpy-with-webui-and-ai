@@ -48,6 +48,20 @@ body {
 #empty-state .es-title { font-size: 17px; font-weight: 700; color: var(--text-dim); letter-spacing: 0.02em; }
 #empty-state .es-sub { font-size: 12px; color: rgba(154, 168, 204, 0.6); }
 
+/* Floating agent toggle: red=phones shown (tap→redroid), green=redroid shown (tap→phones) */
+#agent-toggle {
+  position: fixed; right: 22px; bottom: 22px; z-index: 9999;
+  width: 60px; height: 60px; border-radius: 50%; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; color: #fff;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  transition: background 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+}
+#agent-toggle svg { width: 32px; height: 32px; display: block; }
+#agent-toggle.to-redroid { background: #e5484d; }   /* phones showing → tap for redroid */
+#agent-toggle.to-phones  { background: #30a46c; }   /* redroid showing → tap for phones */
+#agent-toggle:hover { box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55); }
+#agent-toggle:active { transform: scale(0.93); }
+
 /* ---- Floating phone card ---- */
 .phone-card {
   position: absolute;
@@ -151,6 +165,17 @@ body {
   </div>
 </div>
 
+<button id="agent-toggle" class="to-redroid" type="button" title="Redroid(에이전트) 화면 보기" aria-label="에이전트 화면 전환">
+  <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M12 6.5V3.2"/><circle cx="12" cy="2.4" r="1.1" fill="#fff" stroke="none"/>
+    <rect x="4" y="6.5" width="16" height="12.5" rx="3.5"/>
+    <path d="M4 12H2.2"/><path d="M20 12h1.8"/>
+    <circle cx="9" cy="12.5" r="1.35" fill="#fff" stroke="none"/>
+    <circle cx="15" cy="12.5" r="1.35" fill="#fff" stroke="none"/>
+    <path d="M9.5 16h5"/>
+  </svg>
+</button>
+
 <script src="https://cdn.jsdelivr.net/npm/jmuxer@2.1.0/dist/jmuxer.min.js"></script>
 <script>
 /* =================================================================
@@ -164,9 +189,9 @@ function wsUrl(path) { return `${wsProto}//${window.location.host}${path}`; }
 
 // One entry per device. Add more here + a matching scrcpy-webN service & Apache route.
 const DEVICES = [
-  { label: 'Z-Flip4', video: '/ws/video',  control: '/ws/control'  },
-  { label: 'Redroid-Work', video: '/ws2/video', control: '/ws2/control' },
-  { label: 'Redroid-Game', video: '/ws3/video', control: '/ws3/control' },
+  { label: 'Z-Flip4', video: '/ws/video',  control: '/ws/control',  kind: 'phone'   },
+  { label: 'Redroid-Kakao', video: '/ws3/video', control: '/ws3/control', kind: 'redroid' },
+  { label: 'Velvet',  video: '/ws4/video', control: '/ws4/control', kind: 'phone'   },
 ];
 
 const isFirefoxBrowser = /Firefox\//.test(navigator.userAgent) || typeof InstallTrigger !== 'undefined';
@@ -203,9 +228,18 @@ const emptyEl = document.getElementById('empty-state');
 const cards = [];
 let ztop = 10;
 
-// Show the "no devices" hint only when no card is currently online.
+// View toggle: 'phone' (real phones) vs 'redroid' (agent devices). The floating
+// agent button (bottom-right) flips this: red=phones showing (tap→redroid),
+// green=redroid showing (tap→phones).
+let showRedroid = false;
+function cardMatchesView(c) { return c.device.kind === (showRedroid ? 'redroid' : 'phone'); }
+// A card is shown only if it has a live stream AND matches the current view.
+function applyCardVisibility(c) {
+  c.root.style.display = (c.online && cardMatchesView(c)) ? '' : 'none';
+}
+// Show the "no devices" hint only when no card is visible in the current view.
 function updateEmptyState() {
-  emptyEl.style.display = cards.some(c => c.online) ? 'none' : 'flex';
+  emptyEl.style.display = cards.some(c => c.online && cardMatchesView(c)) ? 'none' : 'flex';
 }
 let keyboardCard = null;   // card currently receiving physical keyboard input
 let activeCard = null;     // last-focused card (visual highlight)
@@ -433,12 +467,14 @@ function PhoneCard(device) {
           const codec = info.codec || 'h264';
           setStatus(self.deviceWidth + 'x' + self.deviceHeight + ' [' + codec.toUpperCase() + ']');
           if (self.hideTimer) { clearTimeout(self.hideTimer); self.hideTimer = null; }  // reconnected in time
-          if (!self.online) {                 // device came online → reveal card
+          if (!self.online) {                 // device came online → reveal (if in current view)
             self.online = true;
-            root.style.display = '';
+            applyCardVisibility(self);
             updateEmptyState();
-            if (!self.userSized) self.fitToViewport();
-            layoutCards();
+            if (root.style.display !== 'none') {
+              if (!self.userSized) self.fitToViewport();
+              layoutCards();
+            }
           }
           applyAspect(); resizeOverlay();
           if (!self.jmuxer || codec !== self.deviceCodec) { self.deviceCodec = codec; initJmuxer(codec); }
@@ -471,7 +507,7 @@ function PhoneCard(device) {
           self.hideTimer = setTimeout(() => {
             self.hideTimer = null;
             self.online = false;
-            root.style.display = 'none';
+            applyCardVisibility(self);
             updateEmptyState();
             layoutCards();
           }, GRACE_MS);
@@ -610,6 +646,24 @@ function PhoneCard(device) {
 DEVICES.forEach((d) => cards.push(PhoneCard(d)));
 updateEmptyState();   // all cards start hidden until they stream
 requestAnimationFrame(layoutCards);
+
+/* ---- agent view toggle (real phones ⇄ redroid) ---- */
+const agentBtn = document.getElementById('agent-toggle');
+function updateAgentBtn() {
+  agentBtn.classList.toggle('to-redroid', !showRedroid);
+  agentBtn.classList.toggle('to-phones', showRedroid);
+  agentBtn.title = showRedroid ? '실물 폰 화면 보기' : 'Redroid(에이전트) 화면 보기';
+}
+agentBtn.addEventListener('click', () => {
+  showRedroid = !showRedroid;
+  cards.forEach(applyCardVisibility);
+  // size any card that becomes visible for the first time
+  cards.forEach(c => { if (c.root.style.display !== 'none' && !c.userSized) c.fitToViewport(); });
+  updateEmptyState();
+  updateAgentBtn();
+  layoutCards();
+});
+updateAgentBtn();
 
 document.addEventListener('keydown', (e) => { if (keyboardCard) keyboardCard.handleKey(e); });
 document.addEventListener('keyup', (e) => { if (keyboardCard) keyboardCard.handleKey(e); });
