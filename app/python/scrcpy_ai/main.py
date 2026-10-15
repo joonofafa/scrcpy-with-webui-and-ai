@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from scrcpy_ai.auth import is_internal_request, validate_session
+from scrcpy_ai.auth import SESSION_TTL, is_internal_request, validate_session
 from scrcpy_ai.config import config
 
 logging.basicConfig(
@@ -45,7 +45,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # External requests: check session cookie
         session_token = request.cookies.get("session")
         if validate_session(session_token):
-            return await call_next(request)
+            response = await call_next(request)
+            # validate_session slides the server-side expiry; re-issue the cookie so
+            # the browser's copy slides too, or active users get logged out exactly
+            # SESSION_TTL after login.
+            response.set_cookie(
+                key="session",
+                value=session_token,
+                httponly=True,
+                secure=request.headers.get("x-forwarded-proto") == "https",
+                samesite="lax",
+                max_age=SESSION_TTL,
+            )
+            return response
 
         # Not authenticated: serve login page (no-cache to prevent stale redirect)
         login_path = os.path.join(os.path.dirname(__file__), "static", "login.html")
