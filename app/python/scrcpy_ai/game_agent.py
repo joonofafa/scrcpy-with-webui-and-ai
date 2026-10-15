@@ -344,8 +344,9 @@ SUMMARY_PROMPT = (
     "불확실한 추측은 쓰지 않는다. 최대 600자, 개조식 메모.")
 
 
-def _summarize(old_summary: str, messages: list) -> str:
-    """밀려나는 대화를 기존 요약에 합쳐 새 요약을 만든다. 실패 시 기존 유지."""
+def _summarize(old_summary: str, messages: list) -> str | None:
+    """밀려나는 대화를 기존 요약에 합쳐 새 요약을 만든다. 실패하면 None — 호출부는
+    기존 요약과 히스토리를 그대로 둔다 (실패에 히스토리를 지우면 대화가 사라진다)."""
     lines = []
     for m in messages:
         role = {"user": "사용자", "assistant": "에이전트"}.get(m.get("role"), "")
@@ -367,10 +368,10 @@ def _summarize(old_summary: str, messages: list) -> str:
     try:
         msg, _ = _chat(req_msgs, None)
         out = (msg.get("content") or "").strip()
-        return out or old_summary
+        return out or None
     except Exception as e:
         logger.warning(f"session summarize failed (요약 유지): {e}")
-        return old_summary
+        return None
 
 
 # --- scrcpy 웹백엔드 직접 호출 (MCP 우회) ---
@@ -1152,7 +1153,8 @@ class GameAgentSession:
                     g3_desc = (f"Agent clicked the same coordinates "
                                f"{self._tool_repeat + 1} times in a row and "
                                "the screen did not change.")
-                    g3_p = jev_gate.stuck_probability(g3_desc)
+                    g3_p = await loop.run_in_executor(
+                        None, jev_gate.stuck_probability, g3_desc)
                     logger.info(f"loop guard fired: tool={name} repeat="
                                 f"{self._tool_repeat + 1} stuck_p={g3_p}")
                     if g3_p is not None and g3_p >= 0.5:

@@ -270,6 +270,7 @@ async def agent_auto(request: Request, goal: str = ""):
 async def _run_auto_from_scratch(pkg: str):
     """WS 없는 자동 시작: 세션을 만들어 체인 첫 턴부터 실행."""
     session = _get_session(pkg)
+    session.cycle_done = False  # a new auto run is a new cycle
     await _auto_chain(session, pkg)
 
 
@@ -370,7 +371,8 @@ async def agent_record():
         _rec_state["task"].cancel()
         _rec_state["task"] = None
         rec_dir, _rec_state["dir"] = _rec_state["dir"], None
-        pkg = game_agent.get_foreground_package() if game_agent else ""
+        pkg = await asyncio.get_event_loop().run_in_executor(
+            None, game_agent.get_foreground_package) if game_agent else ""
 
         async def _finalize():
             try:
@@ -483,14 +485,32 @@ def _prime_history(session, pkg: str):
                     bool(summary))
 
 
+def _halt_running(reason: str, pkg: str = ""):
+    """Stop the auto chain and any in-flight turn, except the calling task itself
+    (the auto chain reaches _get_session from inside its own task)."""
+    try:
+        cur = asyncio.current_task()
+    except RuntimeError:
+        cur = None
+    if _auto["chain"] is not None and _auto["chain"] is not cur:
+        _auto_stop(reason, pkg)
+    if _turn_task is not None and not _turn_task.done() and _turn_task is not cur:
+        _turn_task.cancel()
+
+
 def _get_session(pkg: str):
     """앱 패키지별 세션. 세션이 없거나 앱이 바뀌면 (파일에서 복구해) 생성."""
     global _session, _session_pkg
     if game_agent is None:
         raise RuntimeError("game_agent 모듈을 로드할 수 없습니다 "
                            "(scrcpy-ai 로그 확인)")
+    if not pkg and _session is not None:
+        return _session  # adb lookup failed ("") — not an app switch
     if _session is None or _session_pkg != pkg:
         if _session is not None:
+            # Otherwise the old session's chain/turn keeps tapping the phone
+            # alongside the new session.
+            _halt_running("앱 전환", _session_pkg or "")
             try:
                 asyncio.get_event_loop().create_task(_session.close())
             except Exception:
@@ -508,6 +528,7 @@ async def agent_reset():
     loop = asyncio.get_event_loop()
     pkg = await loop.run_in_executor(None, game_agent.get_foreground_package) \
         if game_agent else ""
+    _halt_running("세션 초기화", pkg)
     if _session is not None:
         try:
             await _session.close()
@@ -540,7 +561,10 @@ async def agent_chat(ws: WebSocket):
             text = (msg.get("text") or "").strip()
             if not text:
                 continue
-            pkg = game_agent.get_foreground_package() if game_agent else ""
+            # adb can take up to 10s — off the event loop, or it freezes every
+            # mirroring websocket on the server.
+            pkg = await asyncio.get_event_loop().run_in_executor(
+                None, game_agent.get_foreground_package) if game_agent else ""
             _chat_append(pkg, "user", text)
 
             def on_tool(name: str, desc: str):
