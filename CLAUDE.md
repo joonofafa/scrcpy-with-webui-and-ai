@@ -1,0 +1,119 @@
+# scrcpy-ai 프로젝트 컨텍스트
+
+scrcpy v3.3.4 포크 + **웹 원격 제어** 기능. 헤드리스 서버에서 Android 기기(실기기/Redroid)를
+브라우저로 미러링·제어하는 것이 현재 목적.
+
+**주의**: README.md와 `.claude/claude.md`, `.claude/skill.md`는 AI 에이전트(agent/, clip/,
+llm/, pipeline/ 모듈) 시절의 설명이 남아 있다. 커밋 620fd932("Refactor to pure web remote")로
+해당 모듈은 **삭제됨**. 현재 Python은 인증 + WS 프록시 + 정적 대시보드만 담당.
+(ai-venv에 chromadb/open_clip이 설치되어 있으나 현 코드에서 미사용.)
+
+## 아키텍처 (3 컴포넌트)
+
+```
+브라우저 → Apache(443, SSL) 또는 FastAPI(8080) 직접 접속
+  ├─ /ws/video, /ws/control   → C 백엔드 Mongoose 서버 (18080, Z-Flip4 실기기)
+  ├─ /ws2/video, /ws2/control → 18081 (Redroid-iSharing, localhost:5603)
+  ├─ /ws3/video, /ws3/control → 18082 (Redroid-Kakao, localhost:5601)
+  └─ / (나머지)               → Python FastAPI (8080): TOTP 로그인, 정적 UI
+```
+
+- **C 클라이언트** `app/src/` — 원본 scrcpy + `app/src/web/`(webroute 기능)
+  - `web_server.c` — Mongoose 7.20 HTTP/WS 서버. `/internal/{screenshot,info,click,long_press,swipe,key,text}`, `/ws/{video,control}`
+  - `web_video_sink.c` — packet_sink → Annex-B 변환 + 키프레임 캐시(SPS/PPS 변경 시 무효화)
+  - `web_frame_sink.c` — 스크린샷용 디코딩 프레임 버퍼
+  - 역할 분리 원칙: **C는 디바이스 I/O만, 나머지 로직은 전부 Python 쪽**
+- **Java 서버** `server/` — Android로 push되는 scrcpy-server (업스트림 그대로)
+- **Python** `app/python/scrcpy_ai/` — `main.py`(FastAPI 앱 + WS 프록시), `auth.py`(TOTP +
+  세션 지속화), `web/routes.py`(`/auth/login`, `/auth/setup`), `static/index.html`(대시보드,
+  jmuxer 2.1.0 H.264→MSE), `mcp_server.py`(MCP 서버, 아래 참고)
+
+## MCP 서버 (화면 조회 + 제어)
+
+`app/python/scrcpy_ai/mcp_server.py` — stdio MCP 서버. C 백엔드 `/internal/*` HTTP API를
+래핑해 AI 에이전트가 기기 화면을 보고 제어하게 함. 실행:
+`ai-venv/bin/python app/python/scrcpy_ai/mcp_server.py` (`.mcp.json`에 등록 완료).
+
+- 도구: `screenshot`(JPEG + width/height 텍스트 반환, 500 `encode failed` 시 0.8s 간격 최대 3회
+  재시도), `screen_info`, `click`, `long_press`, `swipe`, `key_press`(대소문자 무관, 숫자 keycode
+  스키마 `str|int`), `input_text`, `list_devices`
+- 디바이스: `phone`(18080, 기본값), `isharing`(18081), `kakao`(18082)
+- **좌표계는 스크린샷 픽셀 좌표** — C `clamp_coords()`가 프레임 좌표로 자동 매핑/클램프.
+  `screenshot` 결과로 보고 클릭 좌표를 그대로 사용하면 됨.
+- MCP SDK는 **2.x**: `from mcp.server.mcpserver import MCPServer` (1.x의 FastMCP명이 아니며,
+  이미지 content 키는 `mimeType` camelCase).
+
+## 빌드/테스트/실행
+
+```bash
+# C 증분 빌드 (정석 경로 — release, -Dwebroute=true)
+ninja -C release/work/build-linux-x86_64
+
+# 새로 설정할 때
+meson setup <builddir> --buildtype=release -Dwebroute=true
+
+# C 유닛테스트 (buildtype=debug일 때만 빌드됨 — release 빌드 디렉토리에선 없음)
+meson test -C build
+
+# Java 서버: 루트 ./gradlew 또는 server/build_without_gradle.sh
+
+# Python 실행 (ai-venv는 저장소 내 gitignored venv)
+ai-venv/bin/python -m scrcpy_ai.main --port 8080 --scrcpy-port 18080
+
+# 배포: dist로 복사 후 서비스 재시작
+cp release/work/build-linux-x86_64/app/scrcpy release/work/build-linux-x86_64/dist/scrcpy
+sudo systemctl restart scrcpy-web   # scrcpy-isharing / scrcpy-kakao / scrcpy-ai 동일
+```
+
+systemd 유닛: `scrcpy-web`(18080), `scrcpy-isharing`(18081), `scrcpy-kakao`(18082),
+`scrcpy-ai`(FastAPI 8080). 실행 시 `--no-window --no-audio --webroute <port>
+--video-bit-rate=4M --max-size=1280 -s <serial>` 형태.
+
+## 주요 규칙/주의사항
+
+- **webroute 코드는 조건부 컴파일**: `meson_options.txt`의 `webroute`(기본 false) →
+  `#ifdef HAVE_WEB_ROUTE`. webroute 관련 수정은 `-Dwebroute=true` 빌드로 검증해야 함.
+  루트 `build/`는 webroute 없는 로컬 debug 디렉토리.
+- **WebSocket은 AuthMiddleware를 우회함**(Starlette BaseHTTPMiddleware는 scope=="http"만
+  처리). 새 WS 엔드포인트는 반드시 `main.py`의 `_ws_authorized()`를 직접 호출해 인증.
+- **세션 TTL 이중 유지**: `auth.py`의 `SESSION_TTL`과 `web/routes.py`의 cookie `max_age`
+  (2시간)는 수동으로 일치시켜야 함.
+- **디바이스 슬롯 추가 시 4곳 수정**: `main.py`(WS 라우트, `config.scrcpy_port + N`),
+  `static/index.html`의 DEVICES 배열(`kind: 'phone'|'redroid'` 필수 — 우하단 빨강/초록
+  플로팅 버튼의 폰⇄에이전트 뷰 토글이 이 값으로 카드를 필터링), systemd 유닛(포트/시리얼),
+  **Apache `jhsrc.conf`의 `/wsN/*` ProxyPass 블록**(누락 시 외부 접속만 조용히 실패).
+- **Redroid 대상 scrcpy 유닛**: `-K`(UHID) 금지 — redroid에서 크래시, **`--keyboard=sdk`** 사용.
+  adb-tcpip 대상이므로 `ExecStartPre=<adb> connect localhost:<port>` 필요.
+- **Redroid 미러 잔상(유령 UI/글자 누락)은 알려진 수용된 이슈 — 재조사 금지**: 컨테이너가
+  `gpu_mode=guest`(SwiftShader)라 인코더 입력 버퍼에 damage-region 잔상이 남는 것.
+  host 모드 전환은 redroid #93(AMD APU Mesa 버그)으로 봇이 읽는 온디바이스 렌더를 깨뜨려
+  기각됨(Bill 결정). 판별법: `adb screencap`은 깨끗한데 스트림만 깨지면 이 이슈.
+- **비디오 파이프라인 불변식** (하나라도 깨면 화면 깨짐 재발):
+  - scrcpy `--max-fps=30` ↔ `index.html` jmuxer `fps: 30` 일치 필수(불일치 → 타임라인
+    드리프트 → 지연 누적).
+  - 지연 보정은 **playbackRate**(1.12x)로만. `video.currentTime` 시크 금지 — 중간 GOP
+    시크는 다음 키프레임까지 매크로블록 깨짐.
+  - `patchSpsLevel()`은 일부 기기 인코더의 잘못된 SPS level_idc(예: LG가 1280px 프레임에
+    Level 1.0 기록)를 4.1로 교정 — 제거하면 해당 기기에서 브라우저 디코드 깨짐.
+  - 로딩 오버레이는 첫 디코드 가능 프레임(`loadeddata`/buffered)에서 내려감 — `timeupdate`
+    만으로 되돌리면 정지 화면 기기가 "Loading…"에 영원히 걸림.
+- C 스타일: 업스트림 scrcpy 규칙 — `sc_` 접두사, snake_case, internal 함수 static,
+  `-Wmissing-prototypes`, C11. app/meson.build에 소스 파일 명시 필요.
+- 상태 저장: `~/.scrcpy_ai/db/`(TOTP 시크릿, sessions.json — chmod 600).
+- 인증 우회 판정은 `auth.is_internal_request`(client host / X-Forwarded-For / Host 헤더).
+  Apache 리버스 프록시 환경 가정.
+
+## 디렉토리 구조
+
+```
+app/src/        C 클라이언트 (원본 + web/ = webroute 추가분)
+app/src/web/    Mongoose 서버, 비디오/프레임 싱크, 입력 주입, JPEG 스크린샷
+app/deps/       mongoose/, cjson/ (webroute 의존, 저장소 포함)
+app/tests/      C 유닛테스트
+app/python/     scrcpy_ai 패키지 (pyproject.toml)
+server/         Android용 Java 서버 (gradle)
+release/        멀티플랫폼 빌드/릴리스 스크립트, work/build-linux-x86_64 = 실제 사용 빌드
+ai-venv/        Python 가상환경 (gitignored, scrcpy-ai 서비스가 사용)
+doc/, FAQ.md    업스트림 scrcpy 문서
+.claude/        이전 세션의 상세 컨텍스트(claude.md, skill.md) — 일부 내용이 구버전
+```
