@@ -28,6 +28,27 @@ llm/, pipeline/ 모듈) 시절의 설명이 남아 있다. 커밋 620fd932("Refa
   세션 지속화), `web/routes.py`(`/auth/login`, `/auth/setup`), `static/index.html`(대시보드,
   jmuxer 2.1.0 H.264→MSE), `mcp_server.py`(MCP 서버, 아래 참고)
 
+**운영 경로 주의**: 모든 systemd 유닛(scrcpy-web/isharing/kakao/ai)은
+`/mnt/extHdd/McpTools/scrcpy-with-webui-and-ai`(이 저장소)에서 실행된다.
+`~/gitHub/scrcpy-with-webui-and-ai`는 같은 원격의 별도 클론 — 거기서 고쳐도 서비스엔 반영 안 됨.
+
+## 게임 에이전트 (웹 대시보드 좌측 패널)
+
+VLM(z.ai `glm-5.3-flash`)이 스크린샷을 보고 툴 호출로 게임을 조작하는 에이전트. 2026-10-15에
+`~/gitHub/zai-game-telegram-bridge`에서 **이 패키지로 이관**됨 (bridge 저장소는 동결 — 수정 금지,
+Telegram 봇 경로는 토큰 폐기로 사망).
+
+- `agent_api.py` — 웹 어댑터: `/ws/agent/chat`(main.py에서 `_ws_authorized` 가드),
+  `/agent/{skills,icon,skill,history,status,stop,auto}`, 세션 녹화
+- `game_agent.py` — 엔진: `GameAgentSession`(턴 루프·컨텍스트 압축), `run_session_tool()`
+  (**게이트가 걸리는 지점**), 스킬/게임지식 저장. C `/internal/*`를 HTTP로 직접 호출(MCP 미사용)
+- `jev_gate.py` — 로컬 Jev-Style-0.8B 하드게이트(Vulkan, `~/gitHub/decision-test-agent`의
+  GGUF·런타임을 절대경로로 사용). 클릭 계열만 판정, 유료 소비 P≥0.5면 차단. 키워드 1차 필터 →
+  모델 판정 순. 검증된 프리미티브는 **noul(예/아니오)뿐** — choice/score는 불안정·폐기.
+- 데이터: `~/.scrcpy_ai/db/{gameSkills,gameKnowledge,recordings}` (`GAME_AGENT_WORKING_DIR`로 변경 가능)
+- 설정: `GAME_AGENT_*` env 네임스페이스만 읽음. API 키는 `~/.apikeys/zai.gameAgent`
+- 수정 후 반영: `sudo systemctl restart scrcpy-ai`
+
 ## MCP 서버 (화면 조회 + 제어)
 
 `app/python/scrcpy_ai/mcp_server.py` — stdio MCP 서버. C 백엔드 `/internal/*` HTTP API를

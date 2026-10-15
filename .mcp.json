@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "scrcpy": {
+      "command": "/mnt/extHdd/McpTools/scrcpy-with-webui-and-ai/ai-venv/bin/python",
+      "args": [
+        "/mnt/extHdd/McpTools/scrcpy-with-webui-and-ai/app/python/scrcpy_ai/mcp_server.py"
+      ]
+    }
+  }
+}

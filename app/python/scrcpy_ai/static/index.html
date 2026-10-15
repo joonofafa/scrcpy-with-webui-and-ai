@@ -62,6 +62,21 @@ body {
 #agent-toggle:hover { box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55); }
 #agent-toggle:active { transform: scale(0.93); }
 
+/* Agent chat panel opener — left edge, above the canvas */
+#agent-panel-toggle {
+  position: fixed; left: 22px; top: 22px; z-index: 9999;
+  width: 46px; height: 46px; border-radius: 50%; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text);
+  background: var(--card); border: 1px solid var(--line);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  transition: border-color 0.2s ease, transform 0.1s ease;
+}
+#agent-panel-toggle svg { width: 24px; height: 24px; }
+#agent-panel-toggle:hover { border-color: rgba(123, 140, 255, 0.65); }
+#agent-panel-toggle:active { transform: scale(0.93); }
+body.agent-open #agent-panel-toggle { display: none; }
+
 /* ---- Floating phone card ---- */
 .phone-card {
   position: absolute;
@@ -154,6 +169,158 @@ body {
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, rgba(123, 140, 255, 0.65), rgba(54, 213, 255, 0.55)); border-radius: 999px; }
+
+/* ---- Agent side panel (left) ---- */
+#agent-panel {
+  position: fixed; left: 0; top: 0; bottom: 0;
+  width: 340px; z-index: 500;
+  display: flex; flex-direction: column;
+  background: var(--card);
+  border-right: 1px solid var(--line);
+  box-shadow: 8px 0 30px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+  transform: translateX(-100%);
+  transition: transform 0.25s ease;
+}
+#agent-panel.open { transform: translateX(0); }
+
+.agent-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(135deg, rgba(22, 30, 54, 0.95), rgba(18, 27, 49, 0.95));
+  flex-shrink: 0;
+}
+.agent-head .ah-title { font-size: 13px; font-weight: 700; flex: 1; }
+.agent-head .ah-status { font-size: 10px; color: var(--text-dim); }
+.agent-head button {
+  padding: 5px 9px; font-size: 11px; font-weight: 600;
+  background: linear-gradient(180deg, rgba(123, 140, 255, 0.22), rgba(90, 105, 214, 0.18));
+  color: var(--text); border: 1px solid rgba(123, 140, 255, 0.35);
+  border-radius: 8px; cursor: pointer;
+}
+.agent-head button:hover { border-color: rgba(123, 140, 255, 0.65); }
+#agent-rec-btn, #agent-reset-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 4px 6px;   /* 아이콘 버튼 — 텍스트 패딩보다 정사각형에 가깝게 */
+}
+#agent-rec-btn svg, #agent-reset-btn svg { display: block; }
+#agent-auto-btn.on {
+  color: #fff; background: #30a46c; border-color: #30a46c;
+  animation: recpulse2 1.6s ease-in-out infinite;
+}
+@keyframes recpulse2 {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(48, 164, 108, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(48, 164, 108, 0); }
+}
+#agent-rec-btn { color: #ff9b9b; }
+#agent-rec-btn.recording {
+  color: #fff; background: #e5484d; border-color: #e5484d;
+  animation: recpulse 1.6s ease-in-out infinite;
+}
+@keyframes recpulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(229, 72, 77, 0); }
+}
+
+#agent-appbar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(14, 20, 38, 0.85);
+  flex-shrink: 0;
+  font-size: 11px; color: var(--text-dim);
+}
+#agent-appbar .ab-icon {
+  width: 20px; height: 20px; border-radius: 5px; flex-shrink: 0;
+  object-fit: cover; background: rgba(123, 140, 255, 0.15);
+}
+#agent-appbar .ab-app {
+  font-weight: 700; color: var(--text);
+  max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#agent-appbar .ab-book {
+  padding: 3px 8px; font-size: 10.5px; font-weight: 600;
+  background: rgba(123, 140, 255, 0.18); color: var(--text);
+  border: 1px solid rgba(123, 140, 255, 0.4); border-radius: 7px;
+  cursor: pointer;
+}
+#agent-appbar .ab-book:hover { border-color: rgba(123, 140, 255, 0.7); }
+#agent-appbar .ab-book.none { cursor: default; opacity: 0.55; }
+#agent-appbar .ab-book.none:hover { border-color: rgba(123, 140, 255, 0.4); }
+
+#agent-log {
+  flex: 1; overflow-y: auto; padding: 10px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.agent-msg { max-width: 92%; padding: 7px 10px; border-radius: 10px; font-size: 12px; line-height: 1.5; word-break: break-word; }
+.agent-msg.user { align-self: flex-end; background: rgba(123, 140, 255, 0.25); border: 1px solid rgba(123, 140, 255, 0.4); }
+.agent-msg.bot  { align-self: flex-start; background: rgba(21, 30, 51, 0.9); border: 1px solid var(--line); }
+.agent-msg.bot p { margin: 0 0 6px 0; } .agent-msg.bot p:last-child { margin-bottom: 0; }
+.agent-msg.bot h1,.agent-msg.bot h2,.agent-msg.bot h3 { font-size: 13px; margin: 8px 0 4px 0; color: #aebcff; }
+.agent-msg.bot ul,.agent-msg.bot ol { margin: 4px 0; padding-left: 18px; }
+.agent-msg.bot li { margin: 2px 0; }
+.agent-msg.bot code { font-family: ui-monospace, monospace; font-size: 11px; background: rgba(10, 15, 30, 0.9); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
+.agent-msg.bot pre { background: rgba(10, 15, 30, 0.9); border: 1px solid var(--line); border-radius: 8px; padding: 8px; overflow-x: auto; margin: 6px 0; }
+.agent-msg.bot pre code { border: none; padding: 0; background: none; }
+.agent-msg.bot a { color: #8fa4ff; }
+.agent-msg.bot strong { color: #dfe4ff; }
+.agent-msg.bot table { border-collapse: collapse; margin: 6px 0; font-size: 11px; }
+.agent-msg.bot th,.agent-msg.bot td { border: 1px solid var(--line); padding: 3px 7px; }
+.agent-msg.tool { align-self: flex-start; font-size: 10.5px; color: var(--text-dim); background: rgba(21, 30, 51, 0.55); border: 1px dashed rgba(120, 148, 215, 0.3); }
+.agent-msg.tool b { color: #9db1f2; font-weight: 700; }
+.agent-msg.err  { align-self: flex-start; color: #ff9b9b; background: rgba(229, 72, 77, 0.12); border: 1px solid rgba(229, 72, 77, 0.4); }
+.agent-msg.summary { align-self: stretch; max-width: 100%; font-size: 11px;
+  background: rgba(48, 164, 108, 0.07); border: 1px solid rgba(126, 226, 168, 0.25);
+  border-radius: 10px; padding: 7px 10px; }
+.agent-msg.summary .sum-label { font-size: 10px; font-weight: 700; color: #7ee2a8;
+  margin-bottom: 4px; letter-spacing: 0.02em; }
+.agent-msg.summary .sum-body p { margin: 0 0 4px 0; }
+.agent-msg.summary .sum-body p:last-child { margin-bottom: 0; }
+.agent-msg.summary .sum-body ul, .agent-msg.summary .sum-body ol { margin: 2px 0; padding-left: 16px; }
+.agent-msg.summary .sum-body li { margin: 1px 0; }
+.agent-msg.summary .sum-body strong { color: #dfe4ff; }
+.agent-msg.summary .sum-body h1, .agent-msg.summary .sum-body h2,
+.agent-msg.summary .sum-body h3 { font-size: 11.5px; margin: 6px 0 3px 0; color: #aebcff; }
+
+#agent-inputbar {
+  display: flex; gap: 6px; padding: 9px;
+  border-top: 1px solid var(--line); flex-shrink: 0;
+}
+#agent-input {
+  flex: 1; padding: 8px 10px; font-size: 12px;
+  background: rgba(10, 15, 30, 0.8); color: var(--text);
+  border: 1px solid var(--line); border-radius: 10px; outline: none;
+}
+#agent-input:focus { border-color: rgba(123, 140, 255, 0.6); }
+#agent-send {
+  padding: 8px 13px; font-size: 12px; font-weight: 700;
+  background: var(--accent); color: #fff; border: none;
+  border-radius: 10px; cursor: pointer;
+}
+#agent-send:disabled { opacity: 0.4; cursor: default; }
+
+/* Skill viewer overlay inside panel */
+#agent-skillview {
+  position: absolute; inset: 0; z-index: 10;
+  background: var(--bg-1); display: none; flex-direction: column;
+}
+#agent-skillview.open { display: flex; }
+#agent-skillview .sv-head {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+#agent-skillview .sv-title { flex: 1; font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#agent-skillview .sv-body { flex: 1; overflow-y: auto; padding: 12px; font-size: 11.5px; white-space: pre-wrap; color: var(--text); line-height: 1.6; }
+#agent-skillview .sv-list { display: flex; flex-direction: column; gap: 6px; }
+#agent-skillview .sv-item {
+  padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px;
+  cursor: pointer; background: rgba(21, 30, 51, 0.8);
+}
+#agent-skillview .sv-item:hover { border-color: rgba(123, 140, 255, 0.6); }
+#agent-skillview .sv-item .si-name { font-size: 11.5px; font-weight: 600; word-break: break-all; }
+#agent-skillview .sv-item .si-meta { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+
 </style>
 </head>
 <body>
@@ -175,6 +342,53 @@ body {
     <path d="M9.5 16h5"/>
   </svg>
 </button>
+
+<!-- ---- Agent chat side panel (left) ---- -->
+<button id="agent-panel-toggle" type="button" title="에이전트 채팅" aria-label="에이전트 채팅 패널 열기">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>
+    <path d="M8 12h.01"/>
+    <path d="M12 12h.01"/>
+    <path d="M16 12h.01"/>
+  </svg>
+</button>
+
+<div id="agent-panel">
+  <div class="agent-head">
+    <span class="ah-title">게임 에이전트</span>
+    <span class="ah-status" id="agent-status">대기</span>
+    <button id="agent-stop-btn" type="button" title="진행 중단" hidden>■</button>
+    <button id="agent-auto-btn" type="button" title="자동 진행: 턴이 끝나도 서버가 이어서 진행 (게임 사이클 완료 시 자동 정지)">▶ 자동</button>
+    <button id="agent-rec-btn" type="button" title="녹화: 종료 시 자동 분석해 게임북에 추가" aria-label="녹화 시작/중지">
+  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="currentColor"/></svg>
+</button>
+    <button id="agent-reset-btn" type="button" title="새 세션" aria-label="새 세션 시작">
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+    <path d="M21 3v6h-6"/>
+  </svg>
+</button>
+    <button id="agent-close-btn" type="button" title="닫기">✕</button>
+  </div>
+  <div id="agent-appbar">
+    <img class="ab-icon" id="agent-appicon" alt="" hidden>
+    <span>현재 앱:</span>
+    <span class="ab-app" id="agent-appname">확인 중…</span>
+    <button class="ab-book none" id="agent-book-btn" type="button">게임북 0</button>
+  </div>
+  <div id="agent-log"></div>
+  <div id="agent-inputbar">
+    <input id="agent-input" type="text" placeholder="에이전트에게 지시…" autocomplete="off">
+    <button id="agent-send" type="button">전송</button>
+  </div>
+  <div id="agent-skillview">
+    <div class="sv-head">
+      <span class="sv-title" id="sv-title">저장된 스킬</span>
+      <button id="sv-close" type="button">✕</button>
+    </div>
+    <div class="sv-body" id="sv-body"></div>
+  </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/jmuxer@2.1.0/dist/jmuxer.min.js"></script>
 <script>
@@ -671,6 +885,391 @@ document.addEventListener('keyup', (e) => { if (keyboardCard) keyboardCard.handl
 window.addEventListener('resize', () => {
   for (const c of cards) { c.overlay.width = c.wrapper.clientWidth; c.overlay.height = c.wrapper.clientHeight; }
   layoutCards();
+});
+
+/* =================================================================
+   Agent chat side panel
+   ================================================================= */
+const agentPanel = document.getElementById('agent-panel');
+const agentLog = document.getElementById('agent-log');
+const agentInput = document.getElementById('agent-input');
+const agentSend = document.getElementById('agent-send');
+const agentStatus = document.getElementById('agent-status');
+const skillView = document.getElementById('agent-skillview');
+const svBody = document.getElementById('sv-body');
+const svTitle = document.getElementById('sv-title');
+
+let agentWs = null;
+let agentBusy = false;
+
+const appName = document.getElementById('agent-appname');
+const bookBtn = document.getElementById('agent-book-btn');
+const appIcon = document.getElementById('agent-appicon');
+
+/* ---- current app + gamebook bar ---- */
+function agentLoadAppbar() {
+  appName.textContent = '확인 중…';
+  appIcon.hidden = true;
+  bookBtn.className = 'ab-book none';
+  bookBtn.textContent = '게임북 …';
+  fetch('/agent/skills').then(r => r.json()).then(data => {
+    const pkg = data.package || '감지 안 됨';
+    const label = data.label || pkg;
+    appName.textContent = label;
+    appName.title = pkg;
+    if (data.icon) {
+      appIcon.src = data.icon;
+      appIcon.hidden = false;
+    }
+    const n = data.skills ? data.skills.length : 0;
+    bookBtn.textContent = `게임북 ${n}`;
+    if (n > 0) {
+      bookBtn.className = 'ab-book';
+      bookBtn.title = data.skills.map(s => s.filename).join('\n');
+    } else {
+      bookBtn.className = 'ab-book none';
+      bookBtn.title = '이 앱에 저장된 진행 방법이 없습니다';
+    }
+  }).catch(() => {
+    appName.textContent = '조회 실패';
+    bookBtn.textContent = '게임북 ?';
+    bookBtn.className = 'ab-book none';
+  });
+}
+bookBtn.addEventListener('click', () => {
+  agentOpenSkillview();
+});
+
+/* ---- chat log: 서버 세션 파일(/agent/history) 기반 — localStorage 미사용 ---- */
+async function agentLoadHistory() {
+  agentLog.innerHTML = '';
+  try {
+    const r = await fetch('/agent/history');
+    const data = await r.json();
+    for (const m of (data.messages || [])) {
+      const cls = { user: 'user', bot: 'bot', tool: 'tool', error: 'err',
+                    summary: 'summary' }[m.role] || 'tool';
+      agentAddMsg(cls, m.text);
+    }
+    // 증분 폴링 기준선 — 이걸 안 하면 첫 폴링에서 히스토리 전체가
+    // 다시 그려지며 방금 입력한 user 말풍선이 화면 밖으로 밀려난다.
+    histLen = (data.messages || []).length;
+  } catch (e) {
+    agentAddMsg('err', '대화 기록을 불러오지 못했습니다: ' + e);
+  }
+  agentLog.scrollTop = agentLog.scrollHeight;
+}
+
+/* ---- 에이전트 상태: 서버 실제 상태(세션 락) 폴링 — 새로고침해도 진행 중 표시 유지 ----
+   진행 중이면 세션 파일을 다시 당겨(증분) ⚙ 로그를 이어서 표시한다. */
+let serverBusy = false;
+let statusTimer = null;
+let histLen = 0;
+
+async function agentPollStatus() {
+  try {
+    const r = await fetch('/agent/status');
+    const d = await r.json();
+    serverBusy = !!d.busy;
+    // 자동 진행 상태 동기화 (새로고침 후에도 버튼에 반영)
+    if (autoBtn && typeof d.auto !== 'undefined' && d.auto !== autoOn) {
+      autoOn = d.auto;
+      autoBtn.classList.toggle('on', autoOn);
+      autoBtn.textContent = autoOn ? '⏹ 자동' : '▶ 자동';
+    }
+  } catch { serverBusy = false; }
+  renderAgentStatus();
+  if (serverBusy) await agentPullNewHistory();
+}
+
+async function agentPullNewHistory() {
+  try {
+    const r = await fetch('/agent/history');
+    const d = await r.json();
+    const msgs = d.messages || [];
+    if (msgs.length > histLen) {
+      for (const m of msgs.slice(histLen)) {
+        const cls = { user: 'user', bot: 'bot', tool: 'tool', error: 'err',
+                      summary: 'summary' }[m.role] || 'tool';
+        // 진행 중 턴의 내 user/bot 메시지는 WS로 이미 표시 중일 수 있음 —
+        // 마지막 청크만 추가하므로 중복 가능성 낮음. user는 스킵(이미 로컬 추가됨)
+        if (m.role === 'user' && agentBusy) continue;
+        agentAddMsg(cls, m.text);
+      }
+      histLen = msgs.length;
+      agentLog.scrollTop = agentLog.scrollHeight;
+    }
+  } catch {}
+}
+
+function renderAgentStatus() {
+  const running = agentBusy || serverBusy;
+  agentStatus.textContent = running ? '진행 중…' : '대기';
+  agentStatus.style.color = running ? '#7ee2a8' : '';
+  agentSend.disabled = running;
+  document.getElementById('agent-stop-btn').hidden = !running;
+}
+
+function agentSetBusy(busy) {
+  agentBusy = busy;
+  renderAgentStatus();
+}
+
+/* ---- 도구명 한국어 완역 테이블 ---- */
+const TOOL_KO = {
+  screenshot: '화면 캡처',
+  click: '터치(클릭)',
+  long_press: '길게 누르기',
+  swipe: '스와이프(끌기)',
+  key_press: '물리 키 입력',
+  input_text: '문자 입력',
+  get_foreground_app: '현재 앱 확인',
+  save_skill: '진행 방법 저장',
+  list_skills: '진행 방법 목록',
+  read_skill: '진행 방법 읽기',
+  rename_skill: '진행 방법 이름 변경',
+  merge_skills: '진행 방법 병합',
+  delete_skill: '진행 방법 삭제',
+  save_game_knowledge: '게임 지식 저장',
+  read_game_knowledge: '게임 지식 읽기',
+  continue_turn: '턴 연장',
+};
+
+/* ---- 경량 마크다운 렌더러 (외부 CDN 없이) ---- */
+function mdEscape(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function mdInline(s) {
+  s = s.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+  s = s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
+                '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  return s;
+}
+function agentMarkdown(src) {
+  const lines = mdEscape(src).split('\n');
+  const out = [];
+  let inUl = false, inOl = false, inCode = false, codeBuf = [], para = [];
+  const flushPara = () => { if (para.length) { out.push(`<p>${mdInline(para.join(' '))}</p>`); para = []; } };
+  const closeLists = () => { if (inUl) { out.push('</ul>'); inUl = false; } if (inOl) { out.push('</ol>'); inOl = false; } };
+  for (const line of lines) {
+    if (line.trim().startsWith('```')) {
+      if (inCode) { out.push(`<pre><code>${codeBuf.join('\n')}</code></pre>`); codeBuf = []; inCode = false; }
+      else { flushPara(); closeLists(); inCode = true; }
+      continue;
+    }
+    if (inCode) { codeBuf.push(line); continue; }
+    const h = line.match(/^(#{1,3})\s+(.*)/);
+    const li = line.match(/^\s*[-*]\s+(.*)/);
+    const oli = line.match(/^\s*\d+[.)]\s+(.*)/);
+    if (h) { flushPara(); closeLists(); out.push(`<h${h[1].length}>${mdInline(h[2])}</h${h[1].length}>`); }
+    else if (li) { flushPara(); if (inOl) { out.push('</ol>'); inOl = false; } if (!inUl) { out.push('<ul>'); inUl = true; } out.push(`<li>${mdInline(li[1])}</li>`); }
+    else if (oli) { flushPara(); if (inUl) { out.push('</ul>'); inUl = false; } if (!inOl) { out.push('<ol>'); inOl = true; } out.push(`<li>${mdInline(oli[1])}</li>`); }
+    else if (line.trim() === '') { flushPara(); closeLists(); }
+    else para.push(line);
+  }
+  if (inCode) out.push(`<pre><code>${codeBuf.join('\n')}</code></pre>`);
+  flushPara(); closeLists();
+  return out.join('');
+}
+
+function agentAddMsg(cls, text) {
+  const el = document.createElement('div');
+  el.className = 'agent-msg ' + cls;
+  el.dataset.raw = text;
+  if (cls === 'bot') el.innerHTML = agentMarkdown(text);
+  else if (cls === 'summary') {
+    // "[세션 요약] <마크다운 본문>" — 라벨을 빼고 본문만 마크다운 렌더링
+    const m = text.match(/^\[세션 요약\]\s*([\s\S]*)$/);
+    const body = m ? m[1] : text;
+    const label = document.createElement('div');
+    label.className = 'sum-label';
+    label.textContent = '📋 세션 요약 (이전 맥락 압축)';
+    el.append(label);
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'sum-body';
+    bodyEl.innerHTML = agentMarkdown(body);
+    el.append(bodyEl);
+  }
+  else if (cls === 'tool') {
+    // "⚙ {원문도구명} {설명}" → 한국어 명칭으로 치환 표시
+    const m = text.match(/^⚙\s+(\S+)(.*)$/s);
+    if (m) {
+      const el2 = document.createElement('b');
+      el2.textContent = `⚙ ${TOOL_KO[m[1]] || m[1]}`;
+      el.append(el2);
+      el.append(document.createTextNode(m[2] || ''));
+    } else el.textContent = text;
+  }
+  else el.textContent = text;
+  agentLog.appendChild(el);
+  agentLog.scrollTop = agentLog.scrollHeight;
+  return el;
+}
+
+function agentConnect() {
+  if (agentWs && agentWs.readyState <= 1) return agentWs;
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  agentWs = new WebSocket(`${proto}//${window.location.host}/ws/agent/chat`);
+  agentWs.onmessage = (ev) => {
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    if (m.type === 'tool') {
+      agentAddMsg('tool', `⚙ ${m.name} ${m.desc || ''}`.trim());
+      if (m.name === 'stopped') agentSetBusy(false);
+    }
+    else if (m.type === 'reply') { agentAddMsg('bot', m.text); agentSetBusy(false); }
+    else if (m.type === 'error') { agentAddMsg('err', m.text); agentSetBusy(false); }
+  };
+  agentWs.onclose = () => { if (agentBusy) agentSetBusy(false); agentWs = null; };
+  return agentWs;
+}
+
+function agentSendText() {
+  const text = agentInput.value.trim();
+  if (!text) return;
+  if (agentBusy || serverBusy) {
+    agentAddMsg('err', '에이전트가 진행 중이라 입력이 전송되지 않았습니다. '
+      + '잠시 후 다시 시도하거나 ■ 버튼으로 중단해 주세요. (입력: '
+      + text.slice(0, 80) + (text.length > 80 ? '…' : '') + ')');
+    return;
+  }
+  const ws = agentConnect();
+  if (ws.readyState === 0) { ws.addEventListener('open', () => { /* queued */ }); }
+  agentAddMsg('user', text);
+  agentInput.value = '';
+  agentSetBusy(true);
+  const push = () => ws.send(JSON.stringify({ type: 'user', text }));
+  if (ws.readyState === 1) push();
+  else ws.addEventListener('open', push, { once: true });
+}
+
+document.getElementById('agent-panel-toggle').addEventListener('click', () => {
+  const open = agentPanel.classList.toggle('open');
+  document.body.classList.toggle('agent-open', open);
+  if (open) {
+    agentConnect(); agentLoadAppbar(); agentLoadHistory(); agentInput.focus();
+    agentPollStatus();
+    if (!statusTimer) statusTimer = setInterval(agentPollStatus, 2000);
+  }
+});
+document.getElementById('agent-close-btn').addEventListener('click', () => {
+  agentPanel.classList.remove('open');
+  document.body.classList.remove('agent-open');
+});
+/* ---- 녹화 토글 ---- */
+const recBtn = document.getElementById('agent-rec-btn');
+let recording = false;
+recBtn.addEventListener('click', async () => {
+  if (!recording && !window.confirm(
+    '녹화를 시작할까요? (3초 간격 화면 캡처, 종료 시 자동 분석해 게임북에 추가)')) return;
+  recBtn.disabled = true;
+  try {
+    const r = await fetch('/agent/record', { method: 'POST' });
+    const d = await r.json();
+    recording = !!d.recording;
+    recBtn.classList.toggle('recording', recording);
+    recBtn.title = recording
+      ? '녹화 중 — 클릭하면 종료하고 자동 분석'
+      : '녹화: 종료 시 자동 분석해 게임북에 추가';
+  } catch (e) {
+    agentAddMsg('err', '녹화 요청 실패: ' + e);
+  }
+  recBtn.disabled = false;
+});
+
+/* ---- 자동 진행 토글 ---- */
+const autoBtn = document.getElementById('agent-auto-btn');
+let autoOn = false;
+autoBtn.addEventListener('click', async () => {
+  // goal: 현재 세션의 마지막 user 메시지(없으면 빈 값 → 서버 기본 문구)
+  let goal = '';
+  try {
+    const r = await fetch('/agent/history');
+    const d = await r.json();
+    const users = (d.messages || []).filter(m => m.role === 'user');
+    goal = users.length ? users[users.length - 1].text.slice(0, 200) : '';
+  } catch {}
+  autoBtn.disabled = true;
+  try {
+    const r = await fetch('/agent/auto', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: goal ? 'goal=' + encodeURIComponent(goal) : ''
+    });
+    const d = await r.json();
+    autoOn = !!d.auto;
+    autoBtn.classList.toggle('on', autoOn);
+    autoBtn.textContent = autoOn ? '⏹ 자동' : '▶ 자동';
+    if (d.error) agentAddMsg('err', d.error);
+  } catch (e) {
+    agentAddMsg('err', '자동 진행 요청 실패: ' + e);
+  }
+  autoBtn.disabled = false;
+});
+
+document.getElementById('agent-stop-btn').addEventListener('click', async () => {
+  if (!serverBusy && !agentBusy) return;
+  agentStatus.textContent = '중단 중…';
+  try { await fetch('/agent/stop', { method: 'POST' }); } catch {}
+  // 서버 폴링(2s)이 busy=false를 가져오면 버튼이 자동으로 사라진다.
+});
+document.getElementById('agent-reset-btn').addEventListener('click', async () => {
+  if (agentBusy || !window.confirm('새 세션을 시작할까요? (현재 앱 대화 기록 아카이브 후 초기화)')) return;
+  try { await fetch('/agent/reset', { method: 'POST' }); } catch {}
+  agentLog.innerHTML = '';
+  agentAddMsg('tool', '↻ 새 세션 시작 — 이 앱의 이전 대화는 아카이브되었습니다');
+});
+agentSend.addEventListener('click', agentSendText);
+agentInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); agentSendText(); }
+});
+
+/* ---- skill viewer (gamebook) ---- */
+async function agentOpenSkillview() {
+  skillView.classList.add('open');
+  svTitle.textContent = '게임북';
+  svBody.innerHTML = '<div class="si-meta">불러오는 중…</div>';
+  try {
+    const r = await fetch('/agent/skills');
+    const data = await r.json();
+    if (!data.skills || data.skills.length === 0) {
+      svBody.innerHTML = `<div class="si-meta">이 앱의 진행 방법이 아직 없습니다${data.package ? ` (${data.label || data.package})` : ''}</div>`;
+      return;
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'sv-list';
+    const hdr = document.createElement('div');
+    hdr.className = 'si-meta';
+    hdr.style.marginBottom = '4px';
+    hdr.textContent = `${data.label || data.package || '감지 안 됨'} — ${data.skills.length}개`;
+    wrap.appendChild(hdr);
+    for (const s of data.skills) {
+      const item = document.createElement('div');
+      item.className = 'sv-item';
+      item.innerHTML = `<div class="si-name"></div><div class="si-meta"></div>`;
+      item.querySelector('.si-name').textContent = s.filename;
+      item.querySelector('.si-meta').textContent = `${s.package} · ${s.created}`;
+      item.addEventListener('click', async () => {
+        svTitle.textContent = s.filename;
+        svBody.textContent = '불러오는 중…';
+        const r2 = await fetch('/agent/skill/' + encodeURIComponent(s.filename));
+        const d2 = await r2.json();
+        const body = d2.content || d2.error || '(내용 없음)';
+        svBody.innerHTML = agentMarkdown(body.replace(/^---[\s\S]*?---\s*/, ''));
+      });
+      wrap.appendChild(item);
+    }
+    svBody.innerHTML = '';
+    svBody.appendChild(wrap);
+    agentLoadAppbar();
+  } catch (e) {
+    svBody.textContent = '게임북을 불러오지 못했습니다: ' + e;
+  }
+}
+bookBtn.addEventListener('click', agentOpenSkillview);
+document.getElementById('sv-close').addEventListener('click', () => {
+  skillView.classList.remove('open');
 });
 </script>
 </body>

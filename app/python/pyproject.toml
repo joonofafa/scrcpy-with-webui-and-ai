@@ -9,6 +9,7 @@ dependencies = [
     "pyotp>=2.9.0",
     "qrcode>=7.4.0",
     "Pillow>=10.0.0",
+    "mcp>=2.2.0",
 ]
 
 [project.scripts]

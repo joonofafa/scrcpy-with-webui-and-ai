@@ -172,9 +172,24 @@ async def ws3_control(ws: WebSocket):
     await _ws_proxy(ws, "/ws/control", port=config.scrcpy_port + 2)
 
 
+# Agent chat panel (web UI left sidebar) — Telegram-independent game agent.
+# WS bypasses AuthMiddleware, so authorize here using the same decision.
+@app.websocket("/ws/agent/chat")
+async def ws_agent_chat(ws: WebSocket):
+    if not _ws_authorized(ws):
+        await ws.close(code=1008)
+        return
+    from scrcpy_ai.agent_api import agent_chat  # noqa: E402
+    await agent_chat(ws)
+
+
 # Register API routes
 from scrcpy_ai.web.routes import router  # noqa: E402
 app.include_router(router)
+
+# Agent panel REST routes (/agent/skills, /agent/skill/{filename})
+from scrcpy_ai.agent_api import router as agent_router  # noqa: E402
+app.include_router(agent_router)
 
 # Serve static files with no-cache on HTML to prevent stale UI after updates
 static_dir = os.path.join(os.path.dirname(__file__), "static")
