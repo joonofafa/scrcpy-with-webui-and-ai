@@ -550,7 +550,8 @@ def run_session_tool(session, name: str, args: dict):
             break
     user_instr = getattr(session, "_last_user_text", "")
     ok, gate_note = jev_gate.gate_tool(intent, name, args,
-                                       user_instruction=user_instr)
+                                       user_instruction=user_instr,
+                                       turn_id=getattr(session, "_turn_id", None))
     if not ok:
         return [{"type": "text", "text": gate_note}], None
     result, jpeg = run_tool(name, args)
@@ -949,6 +950,7 @@ class GameAgentSession:
         self._action_log = []           # 스킬 저장용 [{"tool","args","ts"}]
         self._pkg = None                # 현재 게임 패키지 (스킬 가드)
         self._last_user_text = ""       # 게이트 G2 승인 판정용 최근 사용자 지시
+        self._turn_id = None            # 게이트 G2: 승인은 이 사용자 턴에만 유효
         self._last_tool_sig = None      # 루프 가드: 직전 툴 서명
         self._tool_repeat = 0           # 루프 가드: 연속 반복 횟수
         self._last_coords = ()          # 루프 가드: 직전 click/swipe 좌표
@@ -1028,6 +1030,7 @@ class GameAgentSession:
 
         # 2) 사용자 턴 추가 (텍스트만) — 게이트 G2 승인 판정용으로도 보관
         self._last_user_text = text
+        self._turn_id = time.monotonic_ns()
         self._history.append({"role": "user", "content": text})
 
         # 3) 에이전트 루프 — 매 스텝: 시스템(+세션요약+스킬)+직전 대화+최신 스크린샷
@@ -1092,8 +1095,11 @@ class GameAgentSession:
                     content = [{"type": "text",
                                 "text": f"tool error: {type(e).__name__}: {e}"}]
                     jpeg = None
-                self._action_log.append(
-                    {"tool": name, "args": args, "ts": time.time()})
+                blocked = (content and content[0].get("text", "")
+                           .startswith(jev_gate.BLOCK_PREFIX))
+                if not blocked:  # a blocked action never ran — keep it out of skills
+                    self._action_log.append(
+                        {"tool": name, "args": args, "ts": time.time()})
                 text_part = " ".join(c.get("text", "") for c in content
                                      if c.get("type") == "text")
                 logger.info(f"tool {name} {json.dumps(args, ensure_ascii=False)[:120]}"
