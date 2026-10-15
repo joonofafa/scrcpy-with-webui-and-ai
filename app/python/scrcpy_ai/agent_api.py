@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import subprocess
 import time
 
@@ -39,6 +40,9 @@ _ICON_DIR = os.path.expanduser("~/.scrcpy_ai/db/icons")
 _ICON_TTL = 30 * 86400  # 재추출 주기
 _DEX_LOCAL = "/data/local/tmp/icondump.dex"
 _DEX_BUNDLED = os.path.join(os.path.dirname(__file__), "icondump.dex")
+# `pkg` is interpolated into `adb shell` strings, which the device's /bin/sh
+# parses — only an Android package name shape may get through.
+_PKG_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.]*$")
 
 
 def _adb_path():
@@ -47,7 +51,7 @@ def _adb_path():
 
 def _extract_icon(pkg: str):
     """app_process 아이콘 덤프 → PNG 캐시. 성공 시 (png_path, label)."""
-    if not pkg:
+    if not pkg or not _PKG_RE.match(pkg):
         return None, None
     png = os.path.join(_ICON_DIR, f"{pkg}.png")
     lbl = os.path.join(_ICON_DIR, f"{pkg}.label")
@@ -181,6 +185,8 @@ async def agent_skills():
 @router.get("/icon/{pkg}")
 async def agent_icon(pkg: str):
     """캐시된 앱 아이콘 PNG 서빙."""
+    if not _PKG_RE.match(pkg):
+        return Response(status_code=404)
     png = os.path.join(_ICON_DIR, f"{pkg}.png")
     if not os.path.isfile(png):
         png, _ = await asyncio.get_event_loop().run_in_executor(

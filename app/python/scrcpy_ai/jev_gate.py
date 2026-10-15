@@ -10,7 +10,8 @@
      (광고/스태미너/우편) FP를 잡는 것까지 검증됨.
      영문 의도 0.70+ 신뢰, 한국어 소비 표현 일부 과소평가 → 1층이 커버.
 
-fail-safe: 모델 실패 시 1층 키워드만으로 동작(통과 로그 남김).
+fail-closed: 모델 판정이 불가능하면 게이트 대상 조작을 차단한다(결제 게이트는
+통과보다 정지가 안전). 실패한 엔진은 버리고 다음 호출에서 다시 띄운다.
 """
 
 import json
@@ -54,6 +55,19 @@ def _get_engine():
         return _engine
 
 
+def _reset_engine():
+    """Drop a dead/broken engine so the next call respawns it — otherwise one
+    crashed jev-score process would disable the model layer until restart."""
+    global _engine
+    with _lock:
+        if _engine is not None:
+            try:
+                _engine.close()
+            except Exception:  # noqa: BLE001
+                pass
+            _engine = None
+
+
 def spend_probability(intent_text: str, tool_name: str, tool_args: dict):
     """P(유료 재화 소비). 실패 시 None (fail-safe)."""
     global _degraded
@@ -75,6 +89,7 @@ def spend_probability(intent_text: str, tool_name: str, tool_args: dict):
         if not _degraded:
             logger.warning("[gate:degraded] %s", e)
             _degraded = True
+        _reset_engine()
         return None
 
 
@@ -100,7 +115,8 @@ def gate_tool(intent_text: str, name: str, args: dict,
     # 2층: 로컬 모델 noul
     p = spend_probability(intent, name, args)
     if p is None:
-        return True, "[gate:degraded]"
+        return False, ("[게이트 차단:판정불가] 결제 판정 모델을 사용할 수 없어 "
+                       "조작을 막았다. 턴을 마치고 사용자에게 보고해라.")
     if p < GATE_THRESHOLD:
         return True, f"[gate:ok P={p:.2f}]"
     return False, (f"[게이트 차단] 유료 재화 소비 가능성 P={p:.2f}. "

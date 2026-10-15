@@ -657,13 +657,22 @@ updated: {ts}
 """
 
 
+# Android package name shape. `pkg` here comes from model tool args, so anything
+# else (absolute paths, "..", "/") must not reach the filesystem.
+PKG_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.]*$")
+
+
 def _knowledge_path(pkg: str):
     pkg = pkg or "unknown"
+    if not PKG_RE.match(pkg):
+        return None
     return KNOWLEDGE_DIR / f"{pkg}.md"
 
 
 def read_game_knowledge(pkg: str) -> str:
     p = _knowledge_path(pkg)
+    if p is None:
+        return f"잘못된 패키지 이름: {pkg!r}"
     if not p.exists():
         return (f"아직 {pkg}용 게임 지식이 없다. 화면을 둘러보고 "
                 "save_game_knowledge로 기록하면 된다.")
@@ -675,6 +684,8 @@ def save_game_knowledge(pkg: str, section: str, content: str) -> str:
     진행 모드/재화와 자원/기타 관찰."""
     KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
     p = _knowledge_path(pkg)
+    if p is None:
+        return f"잘못된 패키지 이름: {pkg!r}"
     known = ["화면 구조", "게임 진입 방법", "진행 모드", "재화와 자원", "기타 관찰"]
     sec = next((k for k in known if section.strip().startswith(k[:2]) or k in section), None)
     if not sec:

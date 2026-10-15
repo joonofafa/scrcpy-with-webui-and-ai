@@ -1036,8 +1036,11 @@ const TOOL_KO = {
 };
 
 /* ---- 경량 마크다운 렌더러 (외부 CDN 없이) ---- */
+// Quotes too: mdInline puts link URLs inside href="…", and bot text is LLM output
+// derived from on-screen game text, so an unescaped " would let it add attributes.
 function mdEscape(s) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 function mdInline(s) {
   s = s.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
@@ -1234,7 +1237,7 @@ async function agentOpenSkillview() {
     const r = await fetch('/agent/skills');
     const data = await r.json();
     if (!data.skills || data.skills.length === 0) {
-      svBody.innerHTML = `<div class="si-meta">이 앱의 진행 방법이 아직 없습니다${data.package ? ` (${data.label || data.package})` : ''}</div>`;
+      svBody.innerHTML = `<div class="si-meta">이 앱의 진행 방법이 아직 없습니다${data.package ? ` (${mdEscape(data.label || data.package)})` : ''}</div>`;
       return;
     }
     const wrap = document.createElement('div');
