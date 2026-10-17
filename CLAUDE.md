@@ -15,6 +15,7 @@ llm/, pipeline/ 모듈) 시절의 설명이 남아 있다. 커밋 620fd932("Refa
   ├─ /ws/video, /ws/control   → C 백엔드 Mongoose 서버 (18080, Z-Flip4 실기기)
   ├─ /ws2/video, /ws2/control → 18081 (Redroid-iSharing, localhost:5603)
   ├─ /ws3/video, /ws3/control → 18082 (Redroid-Kakao, localhost:5601)
+  ├─ /ws4/video, /ws4/control → 18083 (LG Velvet 실기기)
   └─ / (나머지)               → Python FastAPI (8080): TOTP 로그인, 정적 UI
 ```
 
@@ -87,6 +88,7 @@ sudo systemctl restart scrcpy-web   # scrcpy-isharing / scrcpy-kakao / scrcpy-ai
 ```
 
 systemd 유닛: `scrcpy-web`(18080), `scrcpy-isharing`(18081), `scrcpy-kakao`(18082),
+`scrcpy-web2`(18083, Velvet),
 `scrcpy-ai`(FastAPI 8080). 실행 시 `--no-window --no-audio --webroute <port>
 --video-bit-rate=4M --max-size=1280 -s <serial>` 형태.
 
@@ -103,6 +105,9 @@ systemd 유닛: `scrcpy-web`(18080), `scrcpy-isharing`(18081), `scrcpy-kakao`(18
   `static/index.html`의 DEVICES 배열(`kind: 'phone'|'redroid'` 필수 — 우하단 빨강/초록
   플로팅 버튼의 폰⇄에이전트 뷰 토글이 이 값으로 카드를 필터링), systemd 유닛(포트/시리얼),
   **Apache `jhsrc.conf`의 `/wsN/*` ProxyPass 블록**(누락 시 외부 접속만 조용히 실패).
+  `sites-enabled/jhsrc.conf`는 `sites-available`로의 **심볼릭 링크여야 함** — 일반 파일로
+  바뀌어 있으면 `sites-available` 수정이 적용되지 않는다(2026-10-17에 실제로 발생).
+  `ls -l /etc/apache2/sites-enabled/jhsrc.conf`로 확인.
 - **Redroid 대상 scrcpy 유닛**: `-K`(UHID) 금지 — redroid에서 크래시, **`--keyboard=sdk`** 사용.
   adb-tcpip 대상이므로 `ExecStartPre=<adb> connect localhost:<port>` 필요.
 - **Redroid 미러 잔상(유령 UI/글자 누락)은 알려진 수용된 이슈 — 재조사 금지**: 컨테이너가
