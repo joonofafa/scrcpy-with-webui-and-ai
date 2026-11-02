@@ -31,7 +31,8 @@ llm/, pipeline/ 모듈) 시절의 설명이 남아 있다. 커밋 620fd932("Refa
 
 **운영 경로 주의**: 모든 systemd 유닛(scrcpy-web/isharing/kakao/ai)은
 `/mnt/extHdd/McpTools/scrcpy-with-webui-and-ai`(이 저장소)에서 실행된다.
-`~/gitHub/scrcpy-with-webui-and-ai`는 같은 원격의 별도 클론 — 거기서 고쳐도 서비스엔 반영 안 됨.
+`~/gitHub/scrcpy-with-webui-and-ai`는 이 저장소를 가리키는 **심볼릭 링크**(2026-11-02, 예전
+별도 클론을 정리함 — 백업은 `.temp/stale-clone-backup-20261102/`). 다시 클론하지 말 것.
 
 ## 게임 에이전트 (웹 대시보드 좌측 패널)
 
