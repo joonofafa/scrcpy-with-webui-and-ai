@@ -37,7 +37,7 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-from scrcpy_ai import jev_gate  # 로컬 Jev-Style 0.8B 게이트 (Vulkan) — HANDOFF_JEV_GATE.md
+from scrcpy_ai import jev_gate  # 로컬 Jev-Style 0.8B — 루프(막힘) 판정 G3
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,8 @@ TOOLS_SPEC = [
             "required": []}}},
     {"type": "function", "function": {
         "name": "click",
-        "description": "화면 좌표 (x, y)를 탭한다. 좌표는 스크린샷 픽셀 좌표다.",
+        "description": "화면 좌표 (x, y)를 탭한다. 좌표는 스크린샷 픽셀 좌표다. "
+                       "탭 약 0.8초 뒤의 스크린샷이 결과에 첨부된다.",
         "parameters": {"type": "object", "properties": {
             "x": {"type": "integer"}, "y": {"type": "integer"},
             "device": {"type": "string"}},
@@ -441,6 +442,17 @@ def tool_read_recording(session_hint: str = "", max_frames: int = 6):
                    f"{len(jpegs)}장 샘플링 (순서대로 첨부)")
 
 
+# 화면을 바꾸는 조작 뒤에는 스크린샷을 자동 첨부한다 — 모델이 결과 확인용
+# screenshot을 따로 부르는 왕복(스텝의 약 절반)을 없앤다.
+AUTO_SHOT_TOOLS = ("click", "long_press", "swipe", "key_press")
+AUTO_SHOT_DELAY = float(os.environ.get("GAME_AGENT_SHOT_DELAY", "0.8"))
+
+
+def _err_note(r: str) -> str:
+    """백엔드는 실패도 HTTP 200 + {"error": ...}로 돌려준다 — 그때만 결과에 남긴다."""
+    return f" FAILED {r[:80]}" if '"error"' in r else ""
+
+
 def run_tool(name: str, args: dict):
     """게임 툴 1개 실행 → (모델에 돌려줄 content 리스트, 이미지 jpeg|None)."""
     device = args.get("device") or DEVICE
@@ -452,20 +464,22 @@ def run_tool(name: str, args: dict):
     elif name == "click":
         x, y = _scale_xy(args["x"], args["y"])
         r = _scrcpy_post("/internal/click", {"x": x, "y": y})
-        content = [{"type": "text", "text": f"clicked ({x},{y}) {r[:80]}"}]
+        content = [{"type": "text",
+                    "text": f"clicked at image ({args['x']},{args['y']}){_err_note(r)}"}]
     elif name == "long_press":
         x, y = _scale_xy(args["x"], args["y"])
-        r = _scrcpy_post("/internal/long_press", {
-            "x": x, "y": y,
-            "duration_ms": args.get("duration_ms", 500)})
-        content = [{"type": "text", "text": f"long_press done {r[:80]}"}]
+        ms = args.get("duration_ms", 500)
+        r = _scrcpy_post("/internal/long_press", {"x": x, "y": y, "duration_ms": ms})
+        content = [{"type": "text", "text": f"long_press at image "
+                                            f"({args['x']},{args['y']}) {ms}ms{_err_note(r)}"}]
     elif name == "swipe":
         x1, y1 = _scale_xy(args["x1"], args["y1"])
         x2, y2 = _scale_xy(args["x2"], args["y2"])
+        ms = args.get("duration_ms", 300)
         r = _scrcpy_post("/internal/swipe", {
-            "x1": x1, "y1": y1, "x2": x2, "y2": y2,
-            "duration_ms": args.get("duration_ms", 300)})
-        content = [{"type": "text", "text": f"swipe done {r[:80]}"}]
+            "x1": x1, "y1": y1, "x2": x2, "y2": y2, "duration_ms": ms})
+        content = [{"type": "text", "text": f"swiped image ({args['x1']},{args['y1']})"
+                                            f" -> ({args['x2']},{args['y2']}) {ms}ms{_err_note(r)}"}]
     elif name == "key_press":
         key = str(args["key"]).strip().lower()
         if key not in KEY_MAP:
@@ -485,6 +499,14 @@ def run_tool(name: str, args: dict):
         content = [{"type": "text", "text": f"foreground: {pkg or 'unknown'}"}]
     else:
         raise ValueError(f"unknown tool '{name}'")
+    if name in AUTO_SHOT_TOOLS:
+        time.sleep(AUTO_SHOT_DELAY)  # 화면 전환/애니메이션이 자리잡을 시간
+        try:
+            jpeg_out, w, h = tool_screenshot(device)
+            content[0]["text"] += (f". screenshot {w}x{h} taken {AUTO_SHOT_DELAY}s "
+                                   "after the action is attached")
+        except Exception as e:  # noqa: BLE001 - 조작은 이미 성공했다
+            content[0]["text"] += f". (auto screenshot failed: {e}; call screenshot)"
     return content, jpeg_out
 
 
@@ -540,25 +562,7 @@ def run_session_tool(session, name: str, args: dict):
         return [{"type": "text",
                  "text": "end_game_cycle 접수 — 마무리 보고로 턴을 종료해라."}], None
 
-    # --- 로컬 Jev 게이트: 유료 재화 소비 조직 차단 (HANDOFF_JEV_GATE.md) ---
-    intent = ""
-    for m in reversed(getattr(session, "_history", [])):
-        if m.get("role") == "assistant":
-            c = m.get("content")
-            if not c and m.get("tool_calls"):
-                c = json.dumps(m["tool_calls"], ensure_ascii=False)
-            intent = c or ""
-            break
-    user_instr = getattr(session, "_last_user_text", "")
-    ok, gate_note = jev_gate.gate_tool(intent, name, args,
-                                       user_instruction=user_instr,
-                                       turn_id=getattr(session, "_turn_id", None))
-    if not ok:
-        return [{"type": "text", "text": gate_note}], None
-    result, jpeg = run_tool(name, args)
-    if gate_note:
-        result[0]["text"] = gate_note + " " + result[0]["text"]
-    return result, jpeg
+    return run_tool(name, args)
 
 
 ADB_SERIAL = os.environ.get("GAME_AGENT_ADB_SERIAL", "R3CTA0SCHGM")
@@ -847,7 +851,9 @@ SYSTEM_PROMPT = """당신은 안드로이드 휴대폰에서 게임을 플레이
 - **좌표계**: 스크린샷은 960폭으로 축소되어 제공된다. 클릭/스와이프 좌표는
   **보이는 이미지의 픽셀 좌표 그대로** 지정하면 시스템이 실기기 좌표로
   자동 환산한다. 이미지 밖 좌표는 내지 않는다.
-- 중요한 동작 후에는 다시 screenshot을 찍어 결과를 확인한다.
+- click/long_press/swipe/key_press는 실행 약 0.8초 뒤의 스크린샷이 결과에 자동
+  첨부된다. 결과 확인용으로 screenshot을 또 부르지 말고 첨부된 화면을 본다.
+  로딩 등으로 더 기다려야 할 때만 screenshot을 호출한다.
 - 화면이 로딩 중이면 잠시 기다렸다가 다시 확인한다 — 실제 시간 대기 도구는 없으니
   screenshot을 반복 호출해 로딩 완료를 감지한다. 단 같은 호출의 무한 반복은 금지다.
 - **검은 화면 프로토콜**: 스크린샷이 거의 검정이면 화면이 꺼진 것이다. key_press
@@ -881,8 +887,6 @@ SYSTEM_PROMPT = """당신은 안드로이드 휴대폰에서 게임을 플레이
 - **보상형 광고/이벤트 팝업**: 닫지 말고 내용을 사용자에게 보고한다. 광고 시청
   여부는 사용자가 결정한다.
 - 인앱 구매, 결제, 가입, 계정 삭제 등 되돌릴 수 없는 행동은 절대 하지 않는다.
-- 유료 재화 소비 가능 조작은 시스템 게이트가 자동 차단할 수 있다. 차단되면
-  무료 경로를 찾거나 사용자에게 보고해라. 게이트 판정을 번복하려 시도하지 마라.
 
 ## 화면 이해
 - 먼저 화면 전체 구조를 파악한다 — 상단 바(재화/에너지), 중앙(메인 컨텐츠),
@@ -950,8 +954,6 @@ class GameAgentSession:
         self._history = []              # [{"role": ..., "content": ...}] 텍스트만
         self._action_log = []           # 스킬 저장용 [{"tool","args","ts"}]
         self._pkg = None                # 현재 게임 패키지 (스킬 가드)
-        self._last_user_text = ""       # 게이트 G2 승인 판정용 최근 사용자 지시
-        self._turn_id = None            # 게이트 G2: 승인은 이 사용자 턴에만 유효
         self._last_tool_sig = None      # 루프 가드: 직전 툴 서명
         self._tool_repeat = 0           # 루프 가드: 연속 반복 횟수
         self._last_coords = ()          # 루프 가드: 직전 click/swipe 좌표
@@ -1029,9 +1031,7 @@ class GameAgentSession:
                 skills_txt += ("\n## 게임 구조 지식 (패키지: %s)\n" % self._pkg
                                + kn)
 
-        # 2) 사용자 턴 추가 (텍스트만) — 게이트 G2 승인 판정용으로도 보관
-        self._last_user_text = text
-        self._turn_id = time.monotonic_ns()
+        # 2) 사용자 턴 추가 (텍스트만)
         self._history.append({"role": "user", "content": text})
 
         # 3) 에이전트 루프 — 매 스텝: 시스템(+세션요약+스킬)+직전 대화+최신 스크린샷
@@ -1096,11 +1096,8 @@ class GameAgentSession:
                     content = [{"type": "text",
                                 "text": f"tool error: {type(e).__name__}: {e}"}]
                     jpeg = None
-                blocked = (content and content[0].get("text", "")
-                           .startswith(jev_gate.BLOCK_PREFIX))
-                if not blocked:  # a blocked action never ran — keep it out of skills
-                    self._action_log.append(
-                        {"tool": name, "args": args, "ts": time.time()})
+                self._action_log.append(
+                    {"tool": name, "args": args, "ts": time.time()})
                 text_part = " ".join(c.get("text", "") for c in content
                                      if c.get("type") == "text")
                 logger.info(f"tool {name} {json.dumps(args, ensure_ascii=False)[:120]}"
