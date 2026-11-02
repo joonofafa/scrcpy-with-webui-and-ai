@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 _sessions: dict[str, float] = {}
 
 SESSION_TTL = 2 * 60 * 60  # 2 hours (must match cookie max_age in web/routes.py)
+_last_save = 0.0
 
 
 def _sessions_path() -> str:
@@ -25,6 +26,8 @@ def _sessions_path() -> str:
 
 def _save_sessions() -> None:
     """Persist sessions so a scrcpy-ai restart doesn't force everyone to re-login."""
+    global _last_save
+    _last_save = time.time()
     try:
         os.makedirs(config.db_dir, exist_ok=True)
         path = _sessions_path()
@@ -102,8 +105,13 @@ def validate_session(token: str) -> bool:
     if time.time() > expiry:
         _sessions.pop(token, None)
         return False
-    # Refresh TTL on activity
-    _sessions[token] = time.time() + SESSION_TTL
+    # Refresh TTL on activity. Persist the slid expiry too (at most once a minute),
+    # or a restart reloads the login-time expiry and kicks out active users.
+    global _last_save
+    now = time.time()
+    _sessions[token] = now + SESSION_TTL
+    if now - _last_save > 60:
+        _save_sessions()
     return True
 
 
