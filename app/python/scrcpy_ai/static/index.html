@@ -122,7 +122,6 @@ body.agent-open #agent-panel-toggle { display: none; }
   overflow: hidden;
 }
 .remote-video { width: 100%; height: 100%; object-fit: contain; display: block; }
-.remote-video.rotated { position: absolute; top: 50%; left: 50%; width: auto; height: auto; object-fit: contain; }
 .touch-overlay { position: absolute; inset: 0; cursor: default; touch-action: none; }
 .video-loading {
   position: absolute; inset: 0;
@@ -413,10 +412,6 @@ const DEVICES = [
   { label: 'Redroid-iSharing', video: '/ws2/video', control: '/ws2/control', kind: 'redroid' },
 ];
 
-const isFirefoxBrowser = /Firefox\//.test(navigator.userAgent) || typeof InstallTrigger !== 'undefined';
-const isChromiumBrowser = !isFirefoxBrowser
-  && (/(Chrome|Chromium|Edg)\//.test(navigator.userAgent) || (!!window.chrome && !!window.chrome.runtime));
-
 // Browser KeyboardEvent.code -> USB HID keyboard usage (= scrcpy scancode), for
 // devices whose backend runs scrcpy's UHID keyboard (-K): the device then sees a
 // physical keyboard and its own IME composes non-ASCII text (e.g. Hangul).
@@ -522,7 +517,7 @@ function PhoneCard(device) {
     device,
     videoWs: null, controlWs: null, jmuxer: null,
     deviceWidth: 0, deviceHeight: 0, deviceCodec: null,
-    videoStarted: false, rot: 0, manualLock: false,
+    videoStarted: false, lastSps: null,
     userSized: false, kbActive: false, jmuxerRetry: 0,
     uhidKeyboard: false, hidMods: 0,
     online: false,   // true only while a live stream is flowing (card visible)
@@ -553,7 +548,6 @@ function PhoneCard(device) {
     mkBtn('Back', () => self.sendKey('back')),
     mkBtn('Home', () => self.sendKey('home')),
     mkBtn('Recents', () => self.sendKey('app_switch')),
-    mkBtn('Rotate', (e) => self.toggleRotation(e), 'Click: rotate 90°, Shift+Click: auto'),
     mkBtn('Vol+', () => self.sendKey('volume_up')),
     mkBtn('Vol-', () => self.sendKey('volume_down')),
     mkBtn('Power', () => self.sendKey('power')),
@@ -583,7 +577,7 @@ function PhoneCard(device) {
     let vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) { vw = self.deviceWidth; vh = self.deviceHeight; }
     if (!vw || !vh) return null;
-    return (self.rot !== 0) ? (vh / vw) : (vw / vh);  // -90° swaps visual w/h
+    return vw / vh;
   }
   function applyAspect() {
     const ar = visualAspectRatio();
@@ -594,7 +588,7 @@ function PhoneCard(device) {
   self.setWidth = function (w) {
     const clamped = Math.max(MIN_W, Math.min(w, maxCardWidth()));
     root.style.width = clamped + 'px';
-    requestAnimationFrame(() => { resizeOverlay(); if (self.rot !== 0) applyVideoLayout(); });
+    requestAnimationFrame(resizeOverlay);
   };
   self.setPos = function (left, top) {
     const w = root.offsetWidth;
@@ -615,40 +609,11 @@ function PhoneCard(device) {
     self.setWidth(width);
   };
 
-  function applyVideoLayout() {
-    if (self.rot === 0) {
-      video.classList.remove('rotated');
-      video.style.transform = ''; video.style.width = ''; video.style.height = '';
-      return;
-    }
-    const wW = wrapper.clientWidth, wH = wrapper.clientHeight;
-    video.classList.add('rotated');
-    video.style.width = wH + 'px';
-    video.style.height = wW + 'px';
-    video.style.transform = 'translate(-50%, -50%) rotate(-90deg)';
-  }
-
+  // The stream itself carries the device orientation (scrcpy re-encodes at the
+  // new size on rotation), so the card just follows the video's own size.
   function updateOrientation() {
-    if (!self.manualLock) {
-      if (!isChromiumBrowser) {
-        self.rot = 0;
-      } else {
-        const vw = video.videoWidth, vh = video.videoHeight;
-        if (vw && vh && self.deviceWidth && self.deviceHeight) {
-          const needs = (self.deviceHeight > self.deviceWidth) !== (vh > vw);
-          self.rot = needs ? -90 : 0;
-        }
-      }
-    }
-    applyAspect(); applyVideoLayout(); resizeOverlay();
+    applyAspect(); resizeOverlay();
   }
-
-  self.toggleRotation = function (e) {
-    if (e && e.shiftKey) { self.manualLock = false; updateOrientation(); return; }
-    self.manualLock = true;
-    self.rot = self.rot === 0 ? -90 : 0;
-    applyAspect(); applyVideoLayout(); resizeOverlay();
-  };
 
   /* ---- input ---- */
   self.sendKey = function (key) {
@@ -657,8 +622,8 @@ function PhoneCard(device) {
   };
   self.sendTouch = function (action, clientX, clientY) {
     if (!self.controlWs || self.controlWs.readyState !== WebSocket.OPEN) { setStatus('Touch: WS not open'); return; }
-    const vw = (self.rot !== 0) ? self.deviceWidth : (video.videoWidth || self.deviceWidth);
-    const vh = (self.rot !== 0) ? self.deviceHeight : (video.videoHeight || self.deviceHeight);
+    const vw = video.videoWidth || self.deviceWidth;
+    const vh = video.videoHeight || self.deviceHeight;
     if (!vw || !vh) { setStatus('Touch: no dimensions'); return; }
     const r = video.getBoundingClientRect();
     const nx = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
@@ -747,7 +712,16 @@ function PhoneCard(device) {
         return;
       }
       if (!self.jmuxer) return;
-      try { self.jmuxer.feed({ video: patchSpsLevel(new Uint8Array(evt.data)) }); } catch (e) { console.error('jmuxer feed', e); }
+      const buf = patchSpsLevel(new Uint8Array(evt.data));
+      // jmuxer builds its MP4 init segment (incl. resolution) from the first SPS
+      // only. On rotation the device re-encodes with a new SPS; feeding that into
+      // the old init segment squeezes frames into the stale size, so restart it.
+      const sps = findSps(buf, self.deviceCodec);
+      if (sps) {
+        if (self.lastSps !== null && sps !== self.lastSps) initJmuxer(self.deviceCodec || 'h264');
+        self.lastSps = sps;
+      }
+      try { self.jmuxer.feed({ video: buf }); } catch (e) { console.error('jmuxer feed', e); }
       if (video.paused) video.play().catch(() => {});
       if (video.buffered.length > 0) {
         markVideoStarted();   // first decodable data → drop the "Loading…" overlay even on a static screen
@@ -811,6 +785,24 @@ function PhoneCard(device) {
       if ((b[hdr] & 0x1f) === 7 && b[hdr + 3] < 0x29) b[hdr + 3] = 0x29;  // SPS → level_idc = 4.1
     }
     return b;
+  }
+
+  // Bytes of the first SPS NAL in an Annex-B buffer (as a string key), or null.
+  function findSps(b, codec) {
+    const n = b.length;
+    let start = -1;
+    for (let i = 0; i + 3 < n; i++) {
+      if (b[i] !== 0 || b[i + 1] !== 0) continue;
+      let hdr = -1;
+      if (b[i + 2] === 1) hdr = i + 3;
+      else if (b[i + 2] === 0 && b[i + 3] === 1) hdr = i + 4;
+      if (hdr < 0 || hdr >= n) continue;
+      if (start >= 0) return String.fromCharCode.apply(null, b.subarray(start, i));
+      const isSps = codec === 'h265' ? ((b[hdr] >> 1) & 0x3f) === 33 : (b[hdr] & 0x1f) === 7;
+      if (isSps) start = hdr;
+      i = hdr - 1;
+    }
+    return start >= 0 ? String.fromCharCode.apply(null, b.subarray(start)) : null;
   }
 
   function initJmuxer(codec) {

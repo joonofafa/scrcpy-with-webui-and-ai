@@ -56,6 +56,21 @@ keyname_to_keycode(const char *key) {
 // device sees a physical keyboard: its own layout, IME and language-switch
 // shortcut apply (this is what makes Hangul input work). Must stay on the web
 // thread, which owns server->hid_kb.
+// Current video size. The video sink only knows the size from stream start,
+// so prefer the latest decoded frame, which follows device rotation.
+static void
+web_get_video_size(struct sc_web_server *server,
+                   uint16_t *width, uint16_t *height) {
+    *width = 0;
+    *height = 0;
+    if (server->frame_sink) {
+        sc_web_frame_sink_get_size(server->frame_sink, width, height);
+    }
+    if (!*width || !*height) {
+        sc_web_video_sink_get_size(server->video_sink, width, height);
+    }
+}
+
 static void
 web_hid_send_key(struct sc_web_server *server, enum sc_action action,
                  int scancode, uint16_t mods) {
@@ -545,7 +560,7 @@ handle_event(struct mg_connection *c, int ev, void *ev_data) {
         if (c->data[0] == 'V' && server->video_sink) {
             // Send video dimensions and codec as text frame
             uint16_t w, h;
-            sc_web_video_sink_get_size(server->video_sink, &w, &h);
+            web_get_video_size(server, &w, &h);
             uint32_t codec_id =
                 sc_web_video_sink_get_codec_id(server->video_sink);
             const char *codec_name =
@@ -626,7 +641,7 @@ web_thread_fn(void *data) {
         if (server->video_sink) {
             // Check for dimension changes (device rotation)
             uint16_t cur_w, cur_h;
-            sc_web_video_sink_get_size(server->video_sink, &cur_w, &cur_h);
+            web_get_video_size(server, &cur_w, &cur_h);
             if (cur_w && cur_h &&
                     (cur_w != server->last_video_width
                      || cur_h != server->last_video_height)) {

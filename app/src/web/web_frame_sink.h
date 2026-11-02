@@ -32,4 +32,9 @@ sc_web_frame_sink_destroy(struct sc_web_frame_sink *wfs);
 bool
 sc_web_frame_sink_consume(struct sc_web_frame_sink *wfs, AVFrame *dst);
 
+// Size of the latest decoded frame (follows device rotation)
+void
+sc_web_frame_sink_get_size(struct sc_web_frame_sink *wfs,
+                           uint16_t *width, uint16_t *height);
+
 #endif

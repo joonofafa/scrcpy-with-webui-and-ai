@@ -33,6 +33,9 @@ sc_web_frame_sink_push(struct sc_frame_sink *sink, const AVFrame *frame) {
 
     sc_mutex_lock(&wfs->mutex);
     wfs->has_frame = true;
+    // The size changes on device rotation without the sink being reopened
+    wfs->frame_width = frame->width;
+    wfs->frame_height = frame->height;
     sc_mutex_unlock(&wfs->mutex);
 
     return true;
@@ -82,4 +85,13 @@ sc_web_frame_sink_consume(struct sc_web_frame_sink *wfs, AVFrame *dst) {
 
     sc_frame_buffer_consume(&wfs->fb, dst);
     return true;
+}
+
+void
+sc_web_frame_sink_get_size(struct sc_web_frame_sink *wfs,
+                           uint16_t *width, uint16_t *height) {
+    sc_mutex_lock(&wfs->mutex);
+    *width = wfs->frame_width;
+    *height = wfs->frame_height;
+    sc_mutex_unlock(&wfs->mutex);
 }

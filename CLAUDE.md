@@ -137,6 +137,11 @@ systemd 유닛: `scrcpy-web`(18080), `scrcpy-isharing`(18081), `scrcpy-kakao`(18
     Level 1.0 기록)를 4.1로 교정 — 제거하면 해당 기기에서 브라우저 디코드 깨짐.
   - 로딩 오버레이는 첫 디코드 가능 프레임(`loadeddata`/buffered)에서 내려감 — `timeupdate`
     만으로 되돌리면 정지 화면 기기가 "Loading…"에 영원히 걸림.
+  - 회전 처리: 기기 회전 시 scrcpy가 새 해상도로 재인코딩(새 SPS). jmuxer는 **첫 SPS로만**
+    init segment를 만들므로 프론트가 SPS 변경을 감지해 jmuxer를 재생성(`findSps`). CSS 회전
+    보정은 없음(예전 "Chrome 회전 보정"은 C 메타데이터가 시작 크기에 고정돼 생긴 오진이었음).
+    C 메타데이터 크기는 디코드된 프레임 크기(`web_get_video_size`)를 따름. 터치 w/h는
+    `video.videoWidth/Height` — 서버는 현재 비디오 크기와 다른 screen_size 터치를 버림.
 - C 스타일: 업스트림 scrcpy 규칙 — `sc_` 접두사, snake_case, internal 함수 static,
   `-Wmissing-prototypes`, C11. app/meson.build에 소스 파일 명시 필요.
 - 상태 저장: `~/.scrcpy_ai/db/`(TOTP 시크릿, sessions.json — chmod 600).
