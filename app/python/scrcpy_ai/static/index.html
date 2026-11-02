@@ -464,6 +464,21 @@ const KEY_TO_ANDROID = {
 
 const MIN_W = 160;
 const GRACE_MS = 10000;   // keep a card visible ("reconnecting…") this long before hiding on a drop
+
+// A WS rejected for an expired session (403) looks like any other drop to the
+// browser, so on a drop ask an authed HTTP endpoint: the auth middleware answers
+// an expired session with the login page (HTML) instead of JSON → go log in.
+let authCheckAt = 0;
+async function checkAuthOnDrop() {
+  if (Date.now() - authCheckAt < 5000) return;
+  authCheckAt = Date.now();
+  try {
+    const r = await fetch('/agent/status', { cache: 'no-store' });
+    if ((r.headers.get('content-type') || '').includes('text/html')) {
+      location.replace('/?t=' + Date.now());
+    }
+  } catch {}  // server down/restarting — keep the normal reconnect loop
+}
 const canvas = document.getElementById('canvas');
 const emptyEl = document.getElementById('empty-state');
 const cards = [];
@@ -791,6 +806,7 @@ function PhoneCard(device) {
     };
     self.videoWs.onclose = () => {
       self.videoStarted = false;
+      checkAuthOnDrop();
       if (self.online) {
         // Brief drop: keep the card up showing "reconnecting…" and only hide it
         // if the stream stays down past GRACE_MS (avoids flicker on a flaky link).
