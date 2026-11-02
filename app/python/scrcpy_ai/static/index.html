@@ -48,23 +48,27 @@ body {
 #empty-state .es-title { font-size: 17px; font-weight: 700; color: var(--text-dim); letter-spacing: 0.02em; }
 #empty-state .es-sub { font-size: 12px; color: rgba(154, 168, 204, 0.6); }
 
-/* Floating agent toggle: red=phones shown (tap→redroid), green=redroid shown (tap→phones) */
+/* Bottom-right floating stack: agent chat opener above the phone/redroid view
+   toggle. Both use the dark-card look; the toggle's state shows in its accent
+   color (red = phones shown, tap for redroid; green = redroid shown, tap for phones). */
 #agent-toggle {
   position: fixed; right: 22px; bottom: 22px; z-index: 9999;
-  width: 60px; height: 60px; border-radius: 50%; border: none; cursor: pointer;
-  display: flex; align-items: center; justify-content: center; color: #fff;
+  width: 46px; height: 46px; border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--card); border: 1px solid var(--line);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-  transition: background 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+  transition: border-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
 }
-#agent-toggle svg { width: 32px; height: 32px; display: block; }
-#agent-toggle.to-redroid { background: #e5484d; }   /* phones showing → tap for redroid */
-#agent-toggle.to-phones  { background: #30a46c; }   /* redroid showing → tap for phones */
-#agent-toggle:hover { box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55); }
+#agent-toggle svg { width: 24px; height: 24px; display: block; }
+#agent-toggle.to-redroid { color: #e5484d; border-color: rgba(229, 72, 77, 0.55); }
+#agent-toggle.to-phones  { color: #30a46c; border-color: rgba(48, 164, 108, 0.55); }
+#agent-toggle.to-redroid:hover { border-color: #e5484d; }
+#agent-toggle.to-phones:hover  { border-color: #30a46c; }
 #agent-toggle:active { transform: scale(0.93); }
 
-/* Agent chat panel opener — left edge, above the canvas */
+/* Agent chat panel opener — stacked above the view toggle */
 #agent-panel-toggle {
-  position: fixed; left: 22px; top: 22px; z-index: 9999;
+  position: fixed; right: 22px; bottom: 80px; z-index: 9999;
   width: 46px; height: 46px; border-radius: 50%; border: none; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   color: var(--text);
@@ -333,12 +337,12 @@ body.agent-open #agent-panel-toggle { display: none; }
 </div>
 
 <button id="agent-toggle" class="to-redroid" type="button" title="Redroid(에이전트) 화면 보기" aria-label="에이전트 화면 전환">
-  <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d="M12 6.5V3.2"/><circle cx="12" cy="2.4" r="1.1" fill="#fff" stroke="none"/>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M12 6.5V3.2"/><circle cx="12" cy="2.4" r="1.1" fill="currentColor" stroke="none"/>
     <rect x="4" y="6.5" width="16" height="12.5" rx="3.5"/>
     <path d="M4 12H2.2"/><path d="M20 12h1.8"/>
-    <circle cx="9" cy="12.5" r="1.35" fill="#fff" stroke="none"/>
-    <circle cx="15" cy="12.5" r="1.35" fill="#fff" stroke="none"/>
+    <circle cx="9" cy="12.5" r="1.35" fill="currentColor" stroke="none"/>
+    <circle cx="15" cy="12.5" r="1.35" fill="currentColor" stroke="none"/>
     <path d="M9.5 16h5"/>
   </svg>
 </button>
