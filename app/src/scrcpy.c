@@ -423,6 +423,7 @@ scrcpy(struct scrcpy_options *options) {
     bool web_server_initialized = false;
     bool web_server_started = false;
     bool web_video_sink_initialized = false;
+    bool web_keyboard_uhid = false;
 #endif
     bool video_demuxer_started = false;
     bool audio_demuxer_started = false;
@@ -786,6 +787,9 @@ aoa_complete:
             }
             kp = &s->keyboard_uhid.key_processor;
             uhid_keyboard = &s->keyboard_uhid;
+#ifdef HAVE_WEB_ROUTE
+            web_keyboard_uhid = true;
+#endif
         }
 
         if (options->mouse_input_mode == SC_MOUSE_INPUT_MODE_SDK) {
@@ -922,7 +926,7 @@ aoa_complete:
             web_video_sink_initialized ? &s->web_video_sink : NULL;
         if (sc_web_server_init(&s->web_server, vs, &s->web_frame_sink,
                                 &s->web_tools, controller,
-                                options->webroute_port)) {
+                                options->webroute_port, web_keyboard_uhid)) {
             web_server_initialized = true;
             if (sc_web_server_start(&s->web_server)) {
                 web_server_started = true;

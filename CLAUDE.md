@@ -71,8 +71,14 @@ Telegram 봇 경로는 토큰 폐기로 사망).
 # C 증분 빌드 (정석 경로 — release, -Dwebroute=true)
 ninja -C release/work/build-linux-x86_64
 
-# 새로 설정할 때
-meson setup <builddir> --buildtype=release -Dwebroute=true
+# 새로 설정할 때 (release/build_linux.sh는 구버전 옵션 -Dai_panel이 남아 있어 그대로 쓰지 말 것)
+DEPS=$PWD/app/deps/work/install/linux-native-static
+meson setup <builddir> --pkg-config-path="$DEPS/lib/pkgconfig" \
+  -Dc_args="-I$DEPS/include" -Dc_link_args="-L$DEPS/lib" \
+  --buildtype=release --strip -Db_lto=true -Dcompile_server=false \
+  -Dportable=true -Dstatic=true -Dwebroute=true
+# 링크에 libx11/xcb/drm/xdmcp/xau/udev 의 -dev 패키지가 필요(없으면 "cannot find -lX11").
+# 정적 의존성 .pc 파일은 절대경로를 품는다 — 저장소를 옮기면 prefix를 다시 고쳐야 함.
 
 # C 유닛테스트 (buildtype=debug일 때만 빌드됨 — release 빌드 디렉토리에선 없음)
 meson test -C build
@@ -108,6 +114,14 @@ systemd 유닛: `scrcpy-web`(18080), `scrcpy-isharing`(18081), `scrcpy-kakao`(18
   `sites-enabled/jhsrc.conf`는 `sites-available`로의 **심볼릭 링크여야 함** — 일반 파일로
   바뀌어 있으면 `sites-available` 수정이 적용되지 않는다(2026-10-17에 실제로 발생).
   `ls -l /etc/apache2/sites-enabled/jhsrc.conf`로 확인.
+- **웹 키보드 입력 경로**: `-K`(UHID) 유닛(Flip4·Velvet)은 제어 WS가 열릴 때 `{"type":"caps",
+  "uhidKeyboard":true}`를 보내고, 프론트는 키를 USB HID 사용 코드로 `{type:"hidkey"}`에 실어
+  보낸다 → `web_server.c`가 scrcpy가 만든 UHID 키보드(ID 1)로 리포트를 전송. 폰이 물리
+  키보드로 인식하므로 **한글은 폰의 키보드 앱이 조합**(폰 설정의 물리 키보드 언어 전환 단축키
+  사용). scrcpy의 텍스트 주입(`INJECT_TEXT`)은 가상 키맵을 거쳐 한글을 버리므로 쓰지 말 것.
+  UHID 키 처리기(`keyboard_uhid.c`)는 메인 스레드 전용이라 웹 스레드는 하위 생성기
+  `sc_hid_keyboard_generate_input_from_key()`를 직접 쓴다. 키가 눌린 채 남지 않도록 KB 끄기·
+  창 포커스 이탈·제어 WS 종료 시 `hidreset`으로 전부 뗀다.
 - **Redroid 대상 scrcpy 유닛**: `-K`(UHID) 금지 — redroid에서 크래시, **`--keyboard=sdk`** 사용.
   adb-tcpip 대상이므로 `ExecStartPre=<adb> connect localhost:<port>` 필요.
 - **Redroid 미러 잔상(유령 UI/글자 누락)은 알려진 수용된 이슈 — 재조사 금지**: 컨테이너가

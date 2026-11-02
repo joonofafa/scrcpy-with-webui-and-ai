@@ -52,6 +52,46 @@ keyname_to_keycode(const char *key) {
     return AKEYCODE_UNKNOWN;
 }
 
+// Feed one browser key into the UHID keyboard scrcpy created for -K, so the
+// device sees a physical keyboard: its own layout, IME and language-switch
+// shortcut apply (this is what makes Hangul input work). Must stay on the web
+// thread, which owns server->hid_kb.
+static void
+web_hid_send_key(struct sc_web_server *server, enum sc_action action,
+                 int scancode, uint16_t mods) {
+    if (scancode <= 0 || scancode > 0xFF) {
+        return;
+    }
+    struct sc_key_event event = {
+        .action = action,
+        .keycode = SC_KEYCODE_UNKNOWN,
+        .scancode = (enum sc_scancode) scancode,
+        .mods_state = mods,
+        .repeat = false,
+    };
+    struct sc_hid_input hid_input;
+    if (!sc_hid_keyboard_generate_input_from_key(&server->hid_kb, &hid_input,
+                                                 &event)) {
+        return; // key not representable on the HID keyboard
+    }
+    struct sc_control_msg msg;
+    msg.type = SC_CONTROL_MSG_TYPE_UHID_INPUT;
+    msg.uhid_input.id = hid_input.hid_id;
+    memcpy(msg.uhid_input.data, hid_input.data, hid_input.size);
+    msg.uhid_input.size = hid_input.size;
+    if (!sc_controller_push_msg(server->controller, &msg)) {
+        LOGW("Could not push web UHID key");
+    }
+}
+
+// Release every key, so a dropped keyup (blur, closed tab) can't leave a key
+// held down on the device.
+static void
+web_hid_release_all(struct sc_web_server *server) {
+    sc_hid_keyboard_init(&server->hid_kb);
+    web_hid_send_key(server, SC_ACTION_UP, SC_SCANCODE_A, 0);
+}
+
 // Handle control WebSocket messages (touch, key)
 static void
 handle_ws_control_msg(struct sc_web_server *server, struct mg_ws_message *wm) {
@@ -205,6 +245,28 @@ handle_ws_control_msg(struct sc_web_server *server, struct mg_ws_message *wm) {
              keycode_item->valueint, (int) metastate);
         if (!sc_controller_push_msg(server->controller, &msg)) {
             LOGW("Could not push web keyevent");
+        }
+    } else if (strcmp(type, "hidkey") == 0) {
+        // Physical key for the UHID keyboard: {type:"hidkey",
+        //   action:"down"|"up", scancode:<USB HID usage>, mods:<sc_mod bits>}
+        cJSON *action_item = cJSON_GetObjectItem(json, "action");
+        cJSON *scancode_item = cJSON_GetObjectItem(json, "scancode");
+        cJSON *mods_item = cJSON_GetObjectItem(json, "mods");
+        if (server->uhid_keyboard
+                && action_item && cJSON_IsString(action_item)
+                && scancode_item && cJSON_IsNumber(scancode_item)) {
+            bool down = strcmp(action_item->valuestring, "down") == 0;
+            bool up = strcmp(action_item->valuestring, "up") == 0;
+            uint16_t mods = (mods_item && cJSON_IsNumber(mods_item))
+                          ? (uint16_t) mods_item->valueint : 0;
+            if (down || up) {
+                web_hid_send_key(server, down ? SC_ACTION_DOWN : SC_ACTION_UP,
+                                 scancode_item->valueint, mods);
+            }
+        }
+    } else if (strcmp(type, "hidreset") == 0) {
+        if (server->uhid_keyboard) {
+            web_hid_release_all(server);
         }
     } else if (strcmp(type, "text") == 0) {
         // Text injection: {type:"text", text:"hello"}
@@ -531,6 +593,10 @@ handle_event(struct mg_connection *c, int ev, void *ev_data) {
         } else if (c->data[0] == 'C') {
             LOGI("Control WebSocket client connected (controller=%p)",
                  (void *)server->controller);
+            const char *caps = server->uhid_keyboard
+                ? "{\"type\":\"caps\",\"uhidKeyboard\":true}"
+                : "{\"type\":\"caps\",\"uhidKeyboard\":false}";
+            mg_ws_send(c, caps, strlen(caps), WEBSOCKET_OP_TEXT);
         }
 
     } else if (ev == MG_EV_WS_MSG) {
@@ -541,6 +607,10 @@ handle_event(struct mg_connection *c, int ev, void *ev_data) {
                  (int)(wm->data.len > 200 ? 200 : wm->data.len),
                  wm->data.buf);
             handle_ws_control_msg(server, wm);
+        }
+    } else if (ev == MG_EV_CLOSE) {
+        if (c->data[0] == 'C' && c->is_websocket && server->uhid_keyboard) {
+            web_hid_release_all(server);
         }
     }
 }
@@ -620,7 +690,7 @@ sc_web_server_init(struct sc_web_server *server,
                    struct sc_web_frame_sink *frame_sink,
                    struct sc_web_tools *tools,
                    struct sc_controller *controller,
-                   uint16_t port) {
+                   uint16_t port, bool uhid_keyboard) {
     server->video_sink = video_sink;
     server->frame_sink = frame_sink;
     server->tools = tools;
@@ -631,6 +701,8 @@ sc_web_server_init(struct sc_web_server *server,
     server->last_video_height = 0;
     server->screen_width = 0;
     server->screen_height = 0;
+    server->uhid_keyboard = uhid_keyboard;
+    sc_hid_keyboard_init(&server->hid_kb);
 
     mg_mgr_init(&server->mgr);
 

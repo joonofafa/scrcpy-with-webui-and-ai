@@ -417,6 +417,32 @@ const isFirefoxBrowser = /Firefox\//.test(navigator.userAgent) || typeof Install
 const isChromiumBrowser = !isFirefoxBrowser
   && (/(Chrome|Chromium|Edg)\//.test(navigator.userAgent) || (!!window.chrome && !!window.chrome.runtime));
 
+// Browser KeyboardEvent.code -> USB HID keyboard usage (= scrcpy scancode), for
+// devices whose backend runs scrcpy's UHID keyboard (-K): the device then sees a
+// physical keyboard and its own IME composes non-ASCII text (e.g. Hangul).
+const HID_USAGE = {
+  'KeyA':0x04,'KeyB':0x05,'KeyC':0x06,'KeyD':0x07,'KeyE':0x08,'KeyF':0x09,'KeyG':0x0A,
+  'KeyH':0x0B,'KeyI':0x0C,'KeyJ':0x0D,'KeyK':0x0E,'KeyL':0x0F,'KeyM':0x10,'KeyN':0x11,
+  'KeyO':0x12,'KeyP':0x13,'KeyQ':0x14,'KeyR':0x15,'KeyS':0x16,'KeyT':0x17,'KeyU':0x18,
+  'KeyV':0x19,'KeyW':0x1A,'KeyX':0x1B,'KeyY':0x1C,'KeyZ':0x1D,'Digit1':0x1E,'Digit2':0x1F,
+  'Digit3':0x20,'Digit4':0x21,'Digit5':0x22,'Digit6':0x23,'Digit7':0x24,'Digit8':0x25,'Digit9':0x26,
+  'Digit0':0x27,'Enter':0x28,'Escape':0x29,'Backspace':0x2A,'Tab':0x2B,'Space':0x2C,'Minus':0x2D,
+  'Equal':0x2E,'BracketLeft':0x2F,'BracketRight':0x30,'Backslash':0x31,'Semicolon':0x33,'Quote':0x34,'Backquote':0x35,
+  'Comma':0x36,'Period':0x37,'Slash':0x38,'CapsLock':0x39,'F1':0x3A,'F2':0x3B,'F3':0x3C,
+  'F4':0x3D,'F5':0x3E,'F6':0x3F,'F7':0x40,'F8':0x41,'F9':0x42,'F10':0x43,
+  'F11':0x44,'F12':0x45,'PrintScreen':0x46,'ScrollLock':0x47,'Pause':0x48,'Insert':0x49,'Home':0x4A,
+  'PageUp':0x4B,'Delete':0x4C,'End':0x4D,'PageDown':0x4E,'ArrowRight':0x4F,'ArrowLeft':0x50,'ArrowDown':0x51,
+  'ArrowUp':0x52,'NumLock':0x53,'NumpadDivide':0x54,'NumpadMultiply':0x55,'NumpadSubtract':0x56,'NumpadAdd':0x57,'NumpadEnter':0x58,
+  'Numpad1':0x59,'Numpad2':0x5A,'Numpad3':0x5B,'Numpad4':0x5C,'Numpad5':0x5D,'Numpad6':0x5E,'Numpad7':0x5F,
+  'Numpad8':0x60,'Numpad9':0x61,'Numpad0':0x62,'NumpadDecimal':0x63,'IntlBackslash':0x64,'ContextMenu':0x65,'ControlLeft':0xE0,
+  'ShiftLeft':0xE1,'AltLeft':0xE2,'MetaLeft':0xE3,'ControlRight':0xE4,'ShiftRight':0xE5,'AltRight':0xE6,'MetaRight':0xE7,
+};
+// Modifier key -> scrcpy sc_mod bit (SDL KMOD_*), sent with every HID key.
+const HID_MOD_BIT = {
+  'ShiftLeft':0x0001,'ShiftRight':0x0002,'ControlLeft':0x0040,'ControlRight':0x0080,
+  'AltLeft':0x0100,'AltRight':0x0200,'MetaLeft':0x0400,'MetaRight':0x0800,
+};
+
 const KEY_TO_ANDROID = {
   'KeyA':29,'KeyB':30,'KeyC':31,'KeyD':32,'KeyE':33,'KeyF':34,'KeyG':35,
   'KeyH':36,'KeyI':37,'KeyJ':38,'KeyK':39,'KeyL':40,'KeyM':41,'KeyN':42,
@@ -498,6 +524,7 @@ function PhoneCard(device) {
     deviceWidth: 0, deviceHeight: 0, deviceCodec: null,
     videoStarted: false, rot: 0, manualLock: false,
     userSized: false, kbActive: false, jmuxerRetry: 0,
+    uhidKeyboard: false, hidMods: 0,
     online: false,   // true only while a live stream is flowing (card visible)
     hideTimer: null, // pending "hide after grace period" timer during a drop
   };
@@ -646,6 +673,16 @@ function PhoneCard(device) {
     const tag = (e.target || e.srcElement).tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (!self.controlWs || self.controlWs.readyState !== WebSocket.OPEN) return;
+    if (self.uhidKeyboard && HID_USAGE[e.code] !== undefined) {
+      e.preventDefault();
+      const down = e.type === 'keydown';
+      const bit = HID_MOD_BIT[e.code];
+      if (bit) self.hidMods = down ? (self.hidMods | bit) : (self.hidMods & ~bit);
+      if (down && e.repeat) return;  // the device repeats held keys itself
+      self.controlWs.send(JSON.stringify({ type: 'hidkey', action: down ? 'down' : 'up',
+                                           scancode: HID_USAGE[e.code], mods: self.hidMods }));
+      return;
+    }
     const code = KEY_TO_ANDROID[e.code];
     if (code !== undefined) {
       e.preventDefault();
@@ -659,14 +696,23 @@ function PhoneCard(device) {
       self.controlWs.send(JSON.stringify({ type: 'text', text: e.key }));
     }
   };
+  // Release every HID key on the device, so a lost keyup (KB off, tab switch)
+  // can't leave a key held down there.
+  self.hidReset = function () {
+    self.hidMods = 0;
+    if (self.uhidKeyboard && self.controlWs && self.controlWs.readyState === WebSocket.OPEN) {
+      self.controlWs.send(JSON.stringify({ type: 'hidreset' }));
+    }
+  };
   self.toggleKeyboard = function () {
     self.kbActive = !self.kbActive;
     if (self.kbActive) {
       // exclusive: turn others off
-      for (const c of cards) if (c !== self && c.kbActive) { c.kbActive = false; c.kbBtn.textContent = 'KB: OFF'; c.kbBtn.classList.remove('kb-on'); }
+      for (const c of cards) if (c !== self && c.kbActive) { c.kbActive = false; c.hidReset(); c.kbBtn.textContent = 'KB: OFF'; c.kbBtn.classList.remove('kb-on'); }
       keyboardCard = self;
-    } else if (keyboardCard === self) {
-      keyboardCard = null;
+    } else {
+      self.hidReset();
+      if (keyboardCard === self) keyboardCard = null;
     }
     kbBtn.textContent = self.kbActive ? 'KB: ON' : 'KB: OFF';
     kbBtn.classList.toggle('kb-on', self.kbActive);
@@ -740,7 +786,14 @@ function PhoneCard(device) {
   }
   function initControlWs() {
     self.controlWs = new WebSocket(wsUrl(device.control));
-    self.controlWs.onclose = () => { setTimeout(initControlWs, 3000); };
+    self.controlWs.onmessage = (evt) => {
+      if (typeof evt.data !== 'string') return;
+      try {
+        const m = JSON.parse(evt.data);
+        if (m.type === 'caps') self.uhidKeyboard = !!m.uhidKeyboard;
+      } catch (e) { /* ignore */ }
+    };
+    self.controlWs.onclose = () => { self.hidMods = 0; setTimeout(initControlWs, 3000); };
     self.controlWs.onerror = () => { self.controlWs.close(); };
   }
   // Some device encoders (e.g. LG Velvet) write a bogus SPS level_idc (Level 1.0)
@@ -886,6 +939,7 @@ updateAgentBtn();
 
 document.addEventListener('keydown', (e) => { if (keyboardCard) keyboardCard.handleKey(e); });
 document.addEventListener('keyup', (e) => { if (keyboardCard) keyboardCard.handleKey(e); });
+window.addEventListener('blur', () => { if (keyboardCard) keyboardCard.hidReset(); });
 
 window.addEventListener('resize', () => {
   for (const c of cards) { c.overlay.width = c.wrapper.clientWidth; c.overlay.height = c.wrapper.clientHeight; }
