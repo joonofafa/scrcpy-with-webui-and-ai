@@ -305,6 +305,31 @@ handle_ws_control_msg(struct sc_web_server *server, struct mg_ws_message *wm) {
             free(msg.inject_text.text);
             LOGW("Could not push web text event");
         }
+    } else if (strcmp(type, "paste") == 0) {
+        // Any Unicode text (e.g. Hangul), which INJECT_TEXT cannot type:
+        // set the device clipboard and paste it into the focused field.
+        // {type:"paste", text:"한글"}
+        cJSON *text_item = cJSON_GetObjectItem(json, "text");
+        if (!text_item || !cJSON_IsString(text_item)
+                || strlen(text_item->valuestring) == 0) {
+            cJSON_Delete(json);
+            return;
+        }
+
+        struct sc_control_msg msg;
+        msg.type = SC_CONTROL_MSG_TYPE_SET_CLIPBOARD;
+        msg.set_clipboard.sequence = SC_SEQUENCE_INVALID;
+        msg.set_clipboard.paste = true;
+        msg.set_clipboard.text = strdup(text_item->valuestring);
+        if (!msg.set_clipboard.text) {
+            cJSON_Delete(json);
+            return;
+        }
+
+        if (!sc_controller_push_msg(server->controller, &msg)) {
+            free(msg.set_clipboard.text);
+            LOGW("Could not push web paste event");
+        }
     }
 
     cJSON_Delete(json);
@@ -609,8 +634,8 @@ handle_event(struct mg_connection *c, int ev, void *ev_data) {
             LOGI("Control WebSocket client connected (controller=%p)",
                  (void *)server->controller);
             const char *caps = server->uhid_keyboard
-                ? "{\"type\":\"caps\",\"uhidKeyboard\":true}"
-                : "{\"type\":\"caps\",\"uhidKeyboard\":false}";
+                ? "{\"type\":\"caps\",\"uhidKeyboard\":true,\"paste\":true}"
+                : "{\"type\":\"caps\",\"uhidKeyboard\":false,\"paste\":true}";
             mg_ws_send(c, caps, strlen(caps), WEBSOCKET_OP_TEXT);
         }
 

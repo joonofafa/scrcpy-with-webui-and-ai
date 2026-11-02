@@ -122,6 +122,11 @@ systemd 유닛: `scrcpy-web`(18080), `scrcpy-isharing`(18081), `scrcpy-kakao`(18
   UHID 키 처리기(`keyboard_uhid.c`)는 메인 스레드 전용이라 웹 스레드는 하위 생성기
   `sc_hid_keyboard_generate_input_from_key()`를 직접 쓴다. 키가 눌린 채 남지 않도록 KB 끄기·
   창 포커스 이탈·제어 WS 종료 시 `hidreset`으로 전부 뗀다.
+- **Redroid(비UHID) 한글 입력**: caps의 `"paste":true`이면 KB ON 시 숨은 textarea(`imeSink`)에
+  포커스를 둬서 PC IME가 조합하게 하고, 확정된 글자를 250ms 단위로 묶어 `{type:"paste"}` →
+  scrcpy SET_CLIPBOARD(paste=true)로 붙여넣음. 묶는 이유: 연속 붙여넣기가 기기 클립보드에서
+  경합함. 다른 키를 보내기 전에 대기 중인 텍스트를 먼저 flush해 순서를 지킴. Android 13은
+  붙여넣을 때마다 클립보드 미리보기 오버레이와 토스트가 뜨는데, 이는 정상 동작.
 - **Redroid 대상 scrcpy 유닛**: `-K`(UHID) 금지 — redroid에서 크래시, **`--keyboard=sdk`** 사용.
   adb-tcpip 대상이므로 `ExecStartPre=<adb> connect localhost:<port>` 필요.
 - **Redroid 미러 잔상(유령 UI/글자 누락)은 알려진 수용된 이슈 — 재조사 금지**: 컨테이너가

@@ -324,6 +324,7 @@ body.agent-open #agent-panel-toggle { display: none; }
 #agent-skillview .sv-item .si-name { font-size: 11.5px; font-weight: 600; word-break: break-all; }
 #agent-skillview .sv-item .si-meta { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
 
+#ime-sink { position: fixed; left: -200px; top: 0; width: 100px; height: 20px; opacity: 0; }
 </style>
 </head>
 <body>
@@ -482,6 +483,50 @@ function updateEmptyState() {
   emptyEl.style.display = cards.some(c => c.online && cardMatchesView(c)) ? 'none' : 'flex';
 }
 let keyboardCard = null;   // card currently receiving physical keyboard input
+
+// Hangul etc. on devices without the UHID keyboard (redroid): keep a hidden
+// textarea focused so the PC's IME can compose, then paste the committed text
+// on the device (scrcpy clipboard paste; INJECT_TEXT can't type non-ASCII).
+const imeSink = document.createElement('textarea');
+imeSink.id = 'ime-sink';
+imeSink.setAttribute('aria-hidden', 'true');
+document.body.appendChild(imeSink);
+let imeComposing = false, imeCompStart = 0, imeSent = 0, imePending = '', imeTimer = null;
+function imeWanted() { return !!(keyboardCard && keyboardCard.canPaste && !keyboardCard.uhidKeyboard); }
+function imeSyncFocus() {
+  if (imeWanted()) imeSink.focus({ preventScroll: true });
+  else if (document.activeElement === imeSink) imeSink.blur();
+}
+// Send buffered text. Batched (not per syllable) so two pastes don't race on
+// the device clipboard; also called before any key so ordering is preserved.
+function imeFlushPending() {
+  if (imeTimer) { clearTimeout(imeTimer); imeTimer = null; }
+  if (!imePending) return;
+  const card = keyboardCard;
+  if (card && card.controlWs && card.controlWs.readyState === WebSocket.OPEN)
+    card.controlWs.send(JSON.stringify({ type: 'paste', text: imePending }));
+  imePending = '';
+}
+function imeCollect() {
+  const end = imeComposing ? imeCompStart : imeSink.value.length;
+  if (end > imeSent) {
+    imePending += imeSink.value.slice(imeSent, end);
+    imeSent = end;
+    if (imeTimer) clearTimeout(imeTimer);
+    imeTimer = setTimeout(imeFlushPending, 250);
+  }
+  if (!imeComposing && imeSink.value.length > 500) { imeSink.value = ''; imeSent = 0; }
+}
+imeSink.addEventListener('compositionstart', () => { imeComposing = true; imeCompStart = imeSink.selectionStart; });
+imeSink.addEventListener('compositionupdate', (e) => { if (keyboardCard) keyboardCard.setStatus('IME: ' + (e.data || '')); });
+imeSink.addEventListener('compositionend', () => { imeComposing = false; setTimeout(imeCollect, 0); });
+imeSink.addEventListener('input', (e) => { if (!e.isComposing) imeCollect(); });
+// keep the IME focus while typing into a card, unless the user moved to a real field
+imeSink.addEventListener('blur', () => setTimeout(() => {
+  const a = document.activeElement;
+  if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) return;
+  if (imeWanted()) imeSink.focus({ preventScroll: true });
+}, 0));
 let activeCard = null;     // last-focused card (visual highlight)
 
 function maxCardWidth() { return Math.max(MIN_W, window.innerWidth - 24); }
@@ -519,7 +564,7 @@ function PhoneCard(device) {
     deviceWidth: 0, deviceHeight: 0, deviceCodec: null,
     videoStarted: false, lastSps: null,
     userSized: false, kbActive: false, jmuxerRetry: 0,
-    uhidKeyboard: false, hidMods: 0,
+    uhidKeyboard: false, hidMods: 0, canPaste: false,
     online: false,   // true only while a live stream is flowing (card visible)
     hideTimer: null, // pending "hide after grace period" timer during a drop
   };
@@ -564,6 +609,7 @@ function PhoneCard(device) {
   self.loading = loading; self.status = status; self.kbBtn = kbBtn;
 
   const setStatus = (m) => { status.textContent = m; };
+  self.setStatus = setStatus;
   // Overlay shown over the video: spinning "loading" while connecting,
   // or a static "disconnected" notice while the device/backend is unreachable.
   function setOverlay(msg, spinning) {
@@ -635,8 +681,9 @@ function PhoneCard(device) {
   };
   self.handleKey = function (e) {
     if (!self.kbActive) return;
-    const tag = (e.target || e.srcElement).tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    const target = e.target || e.srcElement;
+    const tag = target.tagName;
+    if (target !== imeSink && (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT')) return;
     if (!self.controlWs || self.controlWs.readyState !== WebSocket.OPEN) return;
     if (self.uhidKeyboard && HID_USAGE[e.code] !== undefined) {
       e.preventDefault();
@@ -647,6 +694,10 @@ function PhoneCard(device) {
       self.controlWs.send(JSON.stringify({ type: 'hidkey', action: down ? 'down' : 'up',
                                            scancode: HID_USAGE[e.code], mods: self.hidMods }));
       return;
+    }
+    if (target === imeSink) {
+      if (e.isComposing || e.keyCode === 229) return;  // the PC's IME owns this key
+      imeFlushPending();                                // keep pasted text before this key
     }
     const code = KEY_TO_ANDROID[e.code];
     if (code !== undefined) {
@@ -681,6 +732,8 @@ function PhoneCard(device) {
     }
     kbBtn.textContent = self.kbActive ? 'KB: ON' : 'KB: OFF';
     kbBtn.classList.toggle('kb-on', self.kbActive);
+    imeFlushPending();
+    imeSyncFocus();
   };
 
   /* ---- websockets ---- */
@@ -764,7 +817,11 @@ function PhoneCard(device) {
       if (typeof evt.data !== 'string') return;
       try {
         const m = JSON.parse(evt.data);
-        if (m.type === 'caps') self.uhidKeyboard = !!m.uhidKeyboard;
+        if (m.type === 'caps') {
+          self.uhidKeyboard = !!m.uhidKeyboard;
+          self.canPaste = !!m.paste;
+          if (keyboardCard === self) imeSyncFocus();
+        }
       } catch (e) { /* ignore */ }
     };
     self.controlWs.onclose = () => { self.hidMods = 0; setTimeout(initControlWs, 3000); };
