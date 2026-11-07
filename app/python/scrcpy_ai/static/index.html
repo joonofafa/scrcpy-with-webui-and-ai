@@ -582,6 +582,7 @@ function PhoneCard(device) {
     uhidKeyboard: false, hidMods: 0, canPaste: false,
     online: false,   // true only while a live stream is flowing (card visible)
     hideTimer: null, // pending "hide after grace period" timer during a drop
+    wanted: false,   // should be connected (card is in the current view)
   };
 
   // --- DOM ---
@@ -752,7 +753,32 @@ function PhoneCard(device) {
   };
 
   /* ---- websockets ---- */
+  // Only cards in the current view stream (connect/disconnect on view switch), so
+  // the browser doesn't decode — and the link doesn't carry — devices nobody is
+  // looking at. The backends keep running; reconnecting gets the cached keyframe.
+  let videoRetry = null, controlRetry = null;
+  self.connect = function () {
+    if (self.wanted) return;
+    self.wanted = true;
+    initVideoWs();
+    initControlWs();
+  };
+  self.disconnect = function () {
+    if (!self.wanted) return;
+    if (self.kbActive) self.toggleKeyboard();   // releases held HID keys while control is still open
+    self.wanted = false;
+    clearTimeout(videoRetry); clearTimeout(controlRetry);
+    if (self.hideTimer) { clearTimeout(self.hideTimer); self.hideTimer = null; }
+    for (const ws of [self.videoWs, self.controlWs]) {
+      if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
+    }
+    self.videoWs = self.controlWs = null;
+    if (self.jmuxer) { try { self.jmuxer.destroy(); } catch (e) {} self.jmuxer = null; }
+    self.lastSps = null; self.videoStarted = false; self.hidMods = 0;
+    setOverlay('Loading video stream…', true);  // shown on the next connect
+  };
   function initVideoWs() {
+    if (!self.wanted) return;
     self.videoWs = new WebSocket(wsUrl(device.video));
     self.videoWs.binaryType = 'arraybuffer';
     self.videoWs.onopen = () => { setStatus('Connected'); self.videoStarted = false; setOverlay('Loading video stream…', true); };
@@ -823,11 +849,12 @@ function PhoneCard(device) {
       } else {
         setOverlay('Loading video stream…', true);  // reset for next connect
       }
-      setTimeout(initVideoWs, 3000);     // keep probing; card reappears when it streams again
+      videoRetry = setTimeout(initVideoWs, 3000);  // keep probing; card reappears when it streams again
     };
     self.videoWs.onerror = () => { self.videoWs.close(); };
   }
   function initControlWs() {
+    if (!self.wanted) return;
     self.controlWs = new WebSocket(wsUrl(device.control));
     self.controlWs.onmessage = (evt) => {
       if (typeof evt.data !== 'string') return;
@@ -840,7 +867,7 @@ function PhoneCard(device) {
         }
       } catch (e) { /* ignore */ }
     };
-    self.controlWs.onclose = () => { self.hidMods = 0; setTimeout(initControlWs, 3000); };
+    self.controlWs.onclose = () => { self.hidMods = 0; controlRetry = setTimeout(initControlWs, 3000); };
     self.controlWs.onerror = () => { self.controlWs.close(); };
   }
   // Some device encoders (e.g. LG Velvet) write a bogus SPS level_idc (Level 1.0)
@@ -973,8 +1000,7 @@ function PhoneCard(device) {
 
   // initial width before first frame
   self.setWidth(Math.min(320, Math.round(window.innerWidth * 0.42), maxCardWidth()));
-  initVideoWs();
-  initControlWs();
+  if (cardMatchesView(self)) self.connect();
   resizeOverlay();
   return self;
 }
@@ -993,6 +1019,7 @@ function updateAgentBtn() {
 }
 agentBtn.addEventListener('click', () => {
   showRedroid = !showRedroid;
+  cards.forEach(c => cardMatchesView(c) ? c.connect() : c.disconnect());
   cards.forEach(applyCardVisibility);
   // size any card that becomes visible for the first time
   cards.forEach(c => { if (c.root.style.display !== 'none' && !c.userSized) c.fitToViewport(); });

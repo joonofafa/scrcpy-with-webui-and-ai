@@ -37,7 +37,7 @@ llm/, pipeline/ 모듈) 시절의 설명이 남아 있다. 커밋 620fd932("Refa
 ## 게임 에이전트 (웹 대시보드 좌측 패널)
 
 VLM(z.ai `glm-5.3-flash`)이 스크린샷을 보고 툴 호출로 게임을 조작하는 에이전트. 2026-10-15에
-`~/gitHub/zai-game-telegram-bridge`에서 **이 패키지로 이관**됨 (bridge 저장소는 동결 — 수정 금지,
+`~/gitHub/zaiGameTelegramBridge`에서 **이 패키지로 이관**됨 (bridge 저장소는 동결 — 수정 금지,
 Telegram 봇 경로는 토큰 폐기로 사망).
 
 - `agent_api.py` — 웹 어댑터: `/ws/agent/chat`(main.py에서 `_ws_authorized` 가드),
@@ -46,7 +46,7 @@ Telegram 봇 경로는 토큰 폐기로 사망).
   (도구 실행), 스킬/게임지식 저장. C `/internal/*`를 HTTP로 직접 호출(MCP 미사용).
   click/long_press/swipe/key_press는 `GAME_AGENT_SHOT_DELAY`(기본 0.8s) 뒤 스크린샷을
   자동 첨부하고, 결과 문구에 모델이 준 **이미지 좌표**를 적는다(별도 screenshot 왕복 제거).
-- `jev_gate.py` — 로컬 Jev-Style-0.8B(Vulkan, `~/gitHub/decision-test-agent`의 GGUF·런타임을
+- `jev_gate.py` — 로컬 Jev-Style-0.8B(Vulkan, `~/gitHub/decisionTestAgent`의 GGUF·런타임을
   절대경로로 사용). 현재 용도는 **루프 가드의 막힘 판정(G3)뿐**. 유료 소비 하드게이트는
   2026-11-02 제거(Bill이 요청한 기능이 아니었음 — 다시 넣지 말 것). 검증된 프리미티브는
   **noul(예/아니오)뿐** — choice/score는 불안정·폐기.
@@ -146,6 +146,9 @@ systemd 유닛: `scrcpy-web`(18080), `scrcpy-isharing`(18081), `scrcpy-kakao`(18
     Level 1.0 기록)를 4.1로 교정 — 제거하면 해당 기기에서 브라우저 디코드 깨짐.
   - 로딩 오버레이는 첫 디코드 가능 프레임(`loadeddata`/buffered)에서 내려감 — `timeupdate`
     만으로 되돌리면 정지 화면 기기가 "Loading…"에 영원히 걸림.
+  - 스트리밍은 **현재 보기(phone/redroid)의 카드만** 연결(`connect()/disconnect()`), 보기 전환 시
+    나머지는 WS를 닫음. 브라우저 디코드·대역폭만 줄어들 뿐, 기기 쪽 인코딩은 scrcpy 유닛이 떠 있는
+    한 계속됨(C 백엔드에 시청자 유무 게이트 없음).
   - 회전 처리: 기기 회전 시 scrcpy가 새 해상도로 재인코딩(새 SPS). jmuxer는 **첫 SPS로만**
     init segment를 만들므로 프론트가 SPS 변경을 감지해 jmuxer를 재생성(`findSps`). CSS 회전
     보정은 없음(예전 "Chrome 회전 보정"은 C 메타데이터가 시작 크기에 고정돼 생긴 오진이었음).
