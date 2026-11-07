@@ -150,21 +150,96 @@ async def ws_control(ws: WebSocket):
     await _ws_proxy(ws, "/ws/control")
 
 
-# Device 2 (Galaxy Note20) — scrcpy-web2 on port 18081
-@app.websocket("/ws2/video")
-async def ws2_video(ws: WebSocket):
+# Device 2 (Redroid-iSharing) — scrcpy-isharing on port 18081, run ON DEMAND:
+# its map animates nonstop, so scrcpy-server encodes inside the container even
+# with nobody watching. Start the unit when a browser opens /ws2, stop it after
+# ISHARING_IDLE_STOP seconds without viewers. Nothing else uses 18081 (the
+# isharing-agent drives the container over plain adb).
+ISHARING_UNIT = "scrcpy-isharing"
+ISHARING_IDLE_STOP = 300
+_isharing_users = 0
+_isharing_lock = asyncio.Lock()
+_isharing_stop_task = None
+
+
+async def _port_open(port: int) -> bool:
+    try:
+        _, w = await asyncio.open_connection(config.scrcpy_host, port)
+        w.close()
+        return True
+    except OSError:
+        return False
+
+
+async def _systemctl(action: str) -> None:
+    p = await asyncio.create_subprocess_exec(
+        "sudo", "-n", "/usr/bin/systemctl", action, ISHARING_UNIT,
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+    _, err = await p.communicate()
+    if p.returncode:
+        logger.warning("systemctl %s %s failed: %s", action, ISHARING_UNIT, err.decode().strip())
+
+
+async def _isharing_acquire() -> None:
+    global _isharing_users, _isharing_stop_task
+    _isharing_users += 1
+    if _isharing_stop_task:
+        _isharing_stop_task.cancel()
+        _isharing_stop_task = None
+    port = config.scrcpy_port + 1
+    async with _isharing_lock:
+        if await _port_open(port):
+            return
+        logger.info("starting %s on demand", ISHARING_UNIT)
+        await _systemctl("start")
+        for _ in range(30):            # web server comes up ~1-3s after start
+            if await _port_open(port):
+                return
+            await asyncio.sleep(0.5)
+
+
+async def _isharing_stop_later() -> None:
+    global _isharing_stop_task
+    await asyncio.sleep(ISHARING_IDLE_STOP)
+    _isharing_stop_task = None
+    if _isharing_users == 0:
+        logger.info("stopping %s (no viewers for %ds)", ISHARING_UNIT, ISHARING_IDLE_STOP)
+        await _systemctl("stop")
+
+
+def _isharing_release() -> None:
+    global _isharing_users, _isharing_stop_task
+    _isharing_users -= 1
+    if _isharing_users == 0 and not _isharing_stop_task:
+        _isharing_stop_task = asyncio.create_task(_isharing_stop_later())
+
+
+async def _ws2_proxy(ws: WebSocket, path: str) -> None:
     if not _ws_authorized(ws):
         await ws.close(code=1008)
         return
-    await _ws_proxy(ws, "/ws/video", port=config.scrcpy_port + 1)
+    await _isharing_acquire()
+    try:
+        await _ws_proxy(ws, path, port=config.scrcpy_port + 1)
+    finally:
+        _isharing_release()
+
+
+@app.on_event("startup")
+async def _isharing_idle_on_boot():
+    # The unit is enabled at boot; stop it if nobody opens it.
+    global _isharing_stop_task
+    _isharing_stop_task = asyncio.create_task(_isharing_stop_later())
+
+
+@app.websocket("/ws2/video")
+async def ws2_video(ws: WebSocket):
+    await _ws2_proxy(ws, "/ws/video")
 
 
 @app.websocket("/ws2/control")
 async def ws2_control(ws: WebSocket):
-    if not _ws_authorized(ws):
-        await ws.close(code=1008)
-        return
-    await _ws_proxy(ws, "/ws/control", port=config.scrcpy_port + 1)
+    await _ws2_proxy(ws, "/ws/control")
 
 
 # Device 3 (Redroid-Kakao) — scrcpy-kakao on port 18082

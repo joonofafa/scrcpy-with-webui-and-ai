@@ -13,11 +13,16 @@ llm/, pipeline/ 모듈) 시절의 설명이 남아 있다. 커밋 620fd932("Refa
 ```
 브라우저 → Apache(443, SSL) 또는 FastAPI(8080) 직접 접속
   ├─ /ws/video, /ws/control   → C 백엔드 Mongoose 서버 (18080, Z-Flip4 실기기)
-  ├─ /ws2/video, /ws2/control → 18081 (Redroid-iSharing, localhost:5603)
+  ├─ /ws2/video, /ws2/control → 18081 (Redroid-iSharing, localhost:5603) — 온디맨드*
   ├─ /ws3/video, /ws3/control → 18082 (Redroid-Kakao, localhost:5601)
   ├─ /ws4/video, /ws4/control → 18083 (LG Velvet 실기기)
   └─ / (나머지)               → Python FastAPI (8080): TOTP 로그인, 정적 UI
 ```
+
+\* `scrcpy-isharing`은 **보는 사람이 있을 때만 실행**: main.py가 `/ws2` 접속 시 `sudo systemctl start`,
+  시청자 0명으로 `ISHARING_IDLE_STOP`(300s) 지나면 stop(scrcpy-ai 기동 시에도 예약). 지도가 계속
+  움직여 컨테이너 인코딩 CPU를 상시 먹었기 때문(2026-11-07, Bill 결정, iSharing-Agent 동의 —
+  isharing-agent는 adb만 쓰고 18081 미사용). 꺼져 있으면 MCP `isharing` 기기·`/internal`도 응답 없음.
 
 - **C 클라이언트** `app/src/` — 원본 scrcpy + `app/src/web/`(webroute 기능)
   - `web_server.c` — Mongoose 7.20 HTTP/WS 서버. `/internal/{screenshot,info,click,long_press,swipe,key,text}`, `/ws/{video,control}`
