@@ -51,10 +51,9 @@ Telegram 봇 경로는 토큰 폐기로 사망).
   (도구 실행), 스킬/게임지식 저장. C `/internal/*`를 HTTP로 직접 호출(MCP 미사용).
   click/long_press/swipe/key_press는 `GAME_AGENT_SHOT_DELAY`(기본 0.8s) 뒤 스크린샷을
   자동 첨부하고, 결과 문구에 모델이 준 **이미지 좌표**를 적는다(별도 screenshot 왕복 제거).
-- `jev_gate.py` — 로컬 Jev-Style-0.8B(Vulkan, `~/gitHub/decisionTestAgent`의 GGUF·런타임을
-  절대경로로 사용). 현재 용도는 **루프 가드의 막힘 판정(G3)뿐**. 유료 소비 하드게이트는
-  2026-11-02 제거(Bill이 요청한 기능이 아니었음 — 다시 넣지 말 것). 검증된 프리미티브는
-  **noul(예/아니오)뿐** — choice/score는 불안정·폐기.
+- 로컬 Jev 모델(`~/gitHub/decisionTestAgent`) 의존은 **완전히 제거됨**: 유료 소비 하드게이트는
+  2026-11-02, 루프 가드 막힘 판정(G3)은 2026-11-07(입력이 고정 문장이라 판정이 늘 같았음).
+  루프 가드는 같은/근접 좌표 3회 반복 시 경고 문구만 붙인다. 다시 넣지 말 것(Bill 결정).
 - 데이터: `~/.scrcpy_ai/db/{gameSkills,gameKnowledge,recordings}` (`GAME_AGENT_WORKING_DIR`로 변경 가능)
 - 설정: `GAME_AGENT_*` env 네임스페이스만 읽음. API 키는 `~/.apikeys/zai.gameAgent`
 - 수정 후 반영: `sudo systemctl restart scrcpy-ai`

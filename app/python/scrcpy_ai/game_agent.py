@@ -37,7 +37,6 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-from scrcpy_ai import jev_gate  # 로컬 Jev-Style 0.8B — 루프(막힘) 판정 G3
 
 logger = logging.getLogger(__name__)
 
@@ -1143,29 +1142,14 @@ class GameAgentSession:
                     self._last_tool_sig = sig
                     self._last_coords = coords
                 if self._tool_repeat >= 2:
-                    # G3: 로컬 decision 모델로 '막힘'과 '로딩 대기'를 구분한다.
-                    # 근거는 '반복 사실' 자체 — 직전 assistant content는 도구 연쇄 중
-                    # 빈 문자열이거나 한국어 행동 서술이라 판정이 왜곡된다
-                    # (실측: repeat-fact P=0.937 / 한국어 서술 P=0.070).
-                    g3_desc = (f"Agent clicked the same coordinates "
-                               f"{self._tool_repeat + 1} times in a row and "
-                               "the screen did not change.")
-                    g3_p = await loop.run_in_executor(
-                        None, jev_gate.stuck_probability, g3_desc)
                     logger.info(f"loop guard fired: tool={name} repeat="
-                                f"{self._tool_repeat + 1} stuck_p={g3_p}")
-                    if g3_p is not None and g3_p >= 0.5:
-                        text_part += (f"\n[루프게이트 STUCK P={g3_p:.2f}] 같은 조작 "
-                                      "반복 중 화면 변화가 없다. 이 경로는 막혔다. "
-                                      "전혀 다른 접근(다른 버튼/키/뒤로가기)으로 "
-                                      "전환하거나 즉시 턴을 마치고 보고해라.")
-                    else:
-                        text_part += ("\n[경고] 비슷한 위치/방식의 호출을 이미 "
-                                      f"{self._tool_repeat + 1}번 반복했다. 화면이 안 "
-                                      "넘어가는 것이면 내가 놓친 다른 UI 요소를 찾아라 "
-                                      "— 선택 후 아래/옆에 뜨는 확인·획득·다음 버튼, "
-                                      "또는 전혀 다른 좌표/키. 그래도 안 되면 상황을 "
-                                      "보고하고 턴을 마쳐라.")
+                                f"{self._tool_repeat + 1}")
+                    text_part += ("\n[경고] 비슷한 위치/방식의 호출을 이미 "
+                                  f"{self._tool_repeat + 1}번 반복했다. 화면이 안 "
+                                  "넘어가는 것이면 내가 놓친 다른 UI 요소를 찾아라 "
+                                  "— 선택 후 아래/옆에 뜨는 확인·획득·다음 버튼, "
+                                  "또는 전혀 다른 좌표/키. 그래도 안 되면 상황을 "
+                                  "보고하고 턴을 마쳐라.")
                     self._tool_repeat = 0
                     self._last_coords = coords
                 if remaining <= 3 and step < budget:
