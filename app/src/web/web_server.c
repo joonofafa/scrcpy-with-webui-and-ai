@@ -1,5 +1,6 @@
 #include "web_server.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include <libavutil/frame.h>
@@ -743,6 +744,11 @@ sc_web_server_init(struct sc_web_server *server,
     server->screen_height = 0;
     server->uhid_keyboard = uhid_keyboard;
     sc_hid_keyboard_init(&server->hid_kb);
+
+    // Mongoose defaults to DEBUG, which logs a line per packet into the journal.
+    // SC_WEB_LOG_LEVEL: 0=none 1=error (default) 2=info 3=debug 4=verbose
+    const char *lvl = getenv("SC_WEB_LOG_LEVEL");
+    mg_log_level = (lvl && *lvl >= '0' && *lvl <= '4') ? *lvl - '0' : MG_LL_ERROR;
 
     mg_mgr_init(&server->mgr);
 

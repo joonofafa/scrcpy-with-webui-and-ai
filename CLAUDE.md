@@ -99,7 +99,8 @@ sudo systemctl restart scrcpy-web   # scrcpy-isharing / scrcpy-kakao / scrcpy-ai
 
 systemd 유닛: `scrcpy-web`(18080), `scrcpy-isharing`(18081), `scrcpy-kakao`(18082),
 `scrcpy-web2`(18083, Velvet),
-`scrcpy-ai`(FastAPI 8080). 실행 시 `--no-window --no-audio --webroute <port>
+`scrcpy-ai`(FastAPI 8080). Mongoose 로그는 env `SC_WEB_LOG_LEVEL`(0~4, 기본 1=error; 3=debug는
+패킷마다 한 줄이라 journal이 넘침). 실행 시 `--no-window --no-audio --webroute <port>
 --video-bit-rate=4M --max-size=1280 -s <serial>` 형태.
 
 ## 주요 규칙/주의사항
